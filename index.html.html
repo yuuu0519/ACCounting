@@ -1,0 +1,1875 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>我的專屬記帳本</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background-color: #f4f6f9; margin: 0; }
+    
+    /* 頂部導覽頁籤 Nav Tabs */
+    .nav-container {
+      max-width: 1050px;
+      margin: 0 auto 15px auto;
+      display: flex;
+      gap: 10px;
+    }
+    .nav-tab {
+      padding: 10px 20px;
+      background: #e2e8f0;
+      border: none;
+      border-radius: 8px 8px 0 0;
+      font-size: 15px;
+      font-weight: bold;
+      color: #4a5568;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .nav-tab:hover { background: #cbd5e0; }
+    .nav-tab.active { background: white; color: #2c3e50; border-top: 3px solid #3498db; }
+
+    /* 頁面切換控制 */
+    .page-content { display: none; }
+    .page-content.active { display: flex; }
+
+    /* 左右並排的主容器 */
+    .app-container {
+      gap: 20px;
+      max-width: 1050px;
+      margin: 0 auto;
+      align-items: flex-start;
+      width: 100%;
+    }
+
+    .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .left-panel { width: 340px; flex-shrink: 0; display: flex; flex-direction: column; gap: 20px; }
+    .right-panel { flex-grow: 1; display: flex; flex-direction: column; gap: 20px; }
+
+    /* ✏️ 可編輯標題樣式 */
+    .title-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 5px;
+      cursor: pointer;
+    }
+    .title-container h2 { margin: 0; font-size: 24px; color: #2c3e50; }
+    .edit-icon { font-size: 16px; opacity: 0.5; transition: opacity 0.2s; }
+    .title-container:hover .edit-icon { opacity: 1; }
+
+    /* 雲端狀態燈 */
+    .sync-status { font-size: 12px; margin-bottom: 15px; font-weight: bold; }
+    .sync-status.online { color: #27ae60; }
+    .sync-status.offline { color: #e74c3c; }
+    .sync-status.syncing { color: #f39c12; }
+
+    /* 看板區塊 */
+    .dashboard { background: #f8f9fa; padding: 12px; border-radius: 8px; margin-bottom: 15px; }
+    .balance { font-size: 20px; font-weight: bold; color: #2c3e50; margin-bottom: 5px; }
+    .sub-total { display: flex; justify-content: space-between; font-size: 13px; color: #666; }
+    .income-text { color: #27ae60; font-weight: bold; }
+    .expense-text { color: #e74c3c; font-weight: bold; }
+
+    .input-group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+    input, select, textarea { padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; font-family: inherit; }
+    textarea { height: 50px; resize: vertical; }
+    
+    button { width: 100%; padding: 10px; background-color: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    button:hover { background-color: #2980b9; }
+    
+    .filter-section { margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee; display: flex; align-items: center; justify-content: space-between; }
+    .filter-section label { font-size: 14px; font-weight: bold; color: #555; }
+
+    .clear-btn { background-color: #e74c3c; margin-top: 15px; }
+    .clear-btn:hover { background-color: #c0392b; }
+    
+    ul { list-style: none; padding: 0; margin-top: 15px; max-height: 200px; overflow-y: auto; }
+    li { background: #eee; padding: 8px 12px; margin-bottom: 8px; border-radius: 4px; display: flex; justify-content: space-between; font-size: 14px; align-items: center; }
+    
+    .item-left { display: flex; flex-direction: column; gap: 2px; }
+    .item-title-row { display: flex; align-items: center; gap: 8px; }
+    .item-date { color: #777; font-size: 12px; }
+    .item-account-tag { font-size: 11px; background: #e0e6ed; color: #475569; padding: 1px 5px; border-radius: 3px; margin-left: 4px; }
+    .item-note { color: #666; font-size: 12px; margin-top: 2px; padding-left: 2px; word-break: break-all; }
+    
+    .item-right { display: flex; align-items: center; gap: 10px; }
+    .delete-item-btn { background: none; border: none; color: #999; cursor: pointer; font-size: 14px; padding: 2px 4px; width: auto; }
+    .delete-item-btn:hover { color: #e74c3c; background: none; }
+
+    .badge-income { color: #27ae60; font-weight: bold; }
+    .badge-expense { color: #e74c3c; font-weight: bold; }
+    .badge-transfer { color: #8e44ad; font-weight: bold; }
+
+    /* 🤝 借還款專屬樣式 */
+    .section-title { margin-top: 0; margin-bottom: 12px; font-size: 18px; color: #2c3e50; }
+    .card-header-flex { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .card-header-flex .section-title { margin-bottom: 0; }
+    .btn-link { background: none; border: none; color: #3498db; cursor: pointer; font-size: 13px; font-weight: bold; padding: 0; width: auto; }
+    .btn-link:hover { text-decoration: underline; background: none; }
+
+    .lend-item { background: #fdfdfd; border: 1px solid #e2e8f0; padding: 10px; border-radius: 6px; margin-bottom: 8px; font-size: 13px; }
+    .lend-item.returned { background: #f8f9fa; color: #a0aec0; }
+    .lend-item.returned .lend-info { text-decoration: line-through; }
+    
+    .lend-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .lend-info { font-weight: bold; font-size: 14px; }
+    .lend-date-info { font-size: 11px; color: #718096; }
+    .lend-account-info { font-size: 11px; color: #4a5568; margin-top: 2px; }
+    .lend-note-info { font-size: 11px; color: #64748b; margin-top: 3px; word-break: break-all; }
+    
+    .action-btn { width: auto; padding: 3px 8px; font-size: 11px; border-radius: 3px; font-weight: normal; margin-top: 2px; cursor: pointer; display: inline-block; }
+    .btn-return { background-color: #27ae60; color: white; }
+    .btn-return:hover { background-color: #219150; }
+    .btn-batch-return { background-color: #27ae60; color: white; padding: 8px 16px; font-size: 13px; }
+    .btn-batch-return:hover { background-color: #219150; }
+    .btn-edit-item { background-color: #f39c12; color: white; }
+    .btn-edit-item:hover { background-color: #d68910; }
+    .btn-del-item { background-color: #e74c3c; color: white; }
+    .btn-del-item:hover { background-color: #c0392b; }
+    .btn-detail-item { background-color: #3498db; color: white; }
+    .btn-detail-item:hover { background-color: #2980b9; }
+    .returned-tag { color: #27ae60; font-weight: bold; font-size: 12px; }
+
+    /* 💡 今日資金動向樣式 */
+    .today-summary-bar {
+      display: flex;
+      justify-content: space-around;
+      background: #f8fafc;
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      border: 1px solid #edf2f7;
+      text-align: center;
+    }
+    .today-summary-item { font-size: 12px; color: #64748b; }
+    .today-summary-val { font-size: 15px; font-weight: bold; margin-top: 2px; }
+
+    .today-flow-list {
+      max-height: 180px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .today-flow-card {
+      background: #fdfdfd;
+      border: 1px solid #e2e8f0;
+      border-left: 4px solid #cbd5e0;
+      padding: 8px 12px;
+      border-radius: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+    }
+    .today-flow-card.type-income { border-left-color: #27ae60; }
+    .today-flow-card.type-expense { border-left-color: #e74c3c; }
+    .today-flow-card.type-transfer { border-left-color: #8e44ad; }
+    .today-flow-card.type-lend { border-left-color: #e67e22; }
+    .today-flow-card.type-return { border-left-color: #27ae60; }
+
+    /* 📋 表格與控制列樣式 */
+    .full-page-card { width: 100%; }
+    .table-toolbar {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      background: #f8fafc;
+      padding: 10px 15px;
+      border-radius: 8px;
+      margin-top: 15px;
+      margin-bottom: 15px;
+      border: 1px solid #edf2f7;
+      flex-wrap: wrap; /* 如果視窗較窄自動換行 */
+    }
+    .table-toolbar input { margin: 0; }
+    .table-toolbar select { width: 180px; margin: 0; }
+
+    .lend-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .lend-table th, .lend-table td { border: 1px solid #e2e8f0; padding: 10px 12px; text-align: left; }
+    .lend-table th { background-color: #f7fafc; color: #4a5568; font-weight: bold; }
+    .lend-table tr:hover { background-color: #f8fafc; }
+    .lend-table input[type="checkbox"] { transform: scale(1.2); cursor: pointer; }
+    
+    .status-badge { padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; display: inline-block; }
+    .status-unpaid { background: #fed7d7; color: #c53030; }
+    .status-paid { background: #c6f6d5; color: #22543d; }
+
+    .table-note-cell {
+      max-width: 150px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #4a5568;
+    }
+
+    /* 📅 月曆專屬樣式 (含選單控制項) */
+    .calendar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+    .cal-controls { display: flex; align-items: center; gap: 6px; }
+    .cal-controls select { padding: 4px 8px; font-size: 14px; font-weight: bold; color: #2c3e50; cursor: pointer; }
+    .cal-btn { width: auto; padding: 4px 10px; font-size: 12px; background: #e2e8f0; color: #4a5568; border-radius: 4px; }
+    .cal-btn:hover { background: #cbd5e0; }
+    
+    .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; text-align: center; }
+    .weekday-header { font-weight: bold; color: #7f8c8d; padding: 8px 0; font-size: 14px; }
+    
+    .day-cell {
+      min-height: 65px;
+      background: #fdfdfd;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 4px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .day-cell:hover { background: #edf2f7; border-color: #cbd5e0; transform: translateY(-2px); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .day-cell.empty { background: transparent; border: none; cursor: default; }
+    .day-cell.empty:hover { transform: none; box-shadow: none; }
+    .day-number { font-size: 12px; font-weight: bold; color: #4a5568; text-align: left; }
+    .day-cell.today { border: 2px solid #3498db; background-color: #ebf8ff; }
+
+    .cal-badge { font-size: 10px; border-radius: 2px; padding: 1px 2px; text-align: right; overflow: hidden; white-space: nowrap; }
+    .cal-inc { color: #27ae60; background: #e8f8f0; }
+    .cal-exp { color: #e74c3c; background: #fde8e8; }
+
+    /* 🏦 總資產專屬樣式 */
+    .asset-summary { background: linear-gradient(135deg, #2c3e50, #34495e); color: white; padding: 15px; border-radius: 8px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
+    .asset-total-title { font-size: 14px; opacity: 0.8; }
+    .asset-total-amount { font-size: 26px; font-weight: bold; margin-top: 4px; }
+    
+    .asset-input-row { display: flex; gap: 8px; margin-bottom: 12px; }
+    .asset-input-row select { width: 75px; flex-shrink: 0; font-size: 16px; }
+    .asset-input-row input { flex: 1; }
+    .asset-input-row button { width: 75px; background-color: #8e44ad; flex-shrink: 0; }
+    .asset-input-row button:hover { background-color: #732d91; }
+
+    .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+    .asset-card-item { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; }
+    .asset-name { font-size: 13px; color: #666; display: flex; align-items: center; gap: 4px; }
+    .asset-val { font-size: 16px; font-weight: bold; color: #2c3e50; margin-top: 2px; }
+    .asset-val.negative { color: #e74c3c; }
+    .asset-actions { display: flex; gap: 4px; }
+    .edit-asset-btn { background: none; border: none; cursor: pointer; font-size: 12px; opacity: 0.6; padding: 2px; }
+    .edit-asset-btn:hover { opacity: 1; }
+
+    /* 彈出視窗 Modal 樣式 */
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center;
+      z-index: 1000;
+    }
+    .modal-content {
+      background: white; padding: 20px; border-radius: 8px; width: 360px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    }
+    .modal-content h4 { margin-top: 0; margin-bottom: 12px; color: #2c3e50; }
+    .modal-label { font-size: 12px; color: #666; font-weight: bold; margin-top: 6px; display: block; }
+    
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      padding: 6px 0;
+      border-bottom: 1px dashed #edf2f7;
+    }
+    .detail-label { color: #718096; }
+    .detail-val { font-weight: bold; color: #2d3748; }
+    .detail-note-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      color: #4a5568;
+      margin-top: 8px;
+      word-break: break-all;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 上方分頁切換導覽欄 -->
+  <div class="nav-container">
+    <button class="nav-tab active" id="tab-main">📊 主帳頁面</button>
+    <button class="nav-tab" id="tab-lend">🤝 借還款清單總表</button>
+    <button class="nav-tab" id="tab-daily">📅 日期明細</button>
+  </div>
+
+  <!-- 分頁 1：主帳頁面 -->
+  <div id="page-main" class="app-container page-content active">
+    
+    <!-- 左側面板區域 -->
+    <div class="left-panel">
+      
+      <!-- 卡片一：記帳本面板 -->
+      <div class="card">
+        <div class="title-container" id="title-btn" title="點擊修改記帳本名稱">
+          <h2 id="book-title">記帳</h2>
+          <span class="edit-icon">✏️</span>
+        </div>
+        <div id="sync-status" class="sync-status syncing">🟡 正在連線雲端資料庫...</div>
+        
+        <div class="dashboard">
+          <div class="balance"><span id="balance-title">累計總結餘</span>: $<span id="net-balance">0</span></div>
+          <div class="sub-total">
+            <span>總收入: <span id="total-income" class="income-text">$0</span></span>
+            <span>總支出: <span id="total-expense" class="expense-text">$0</span></span>
+          </div>
+        </div>
+
+        <div class="input-group">
+          <input type="date" id="item-date">
+          <select id="item-type">
+            <option value="expense">🔴 支出</option>
+            <option value="income">🟢 收入</option>
+            <option value="transfer">🔄 轉帳</option>
+          </select>
+          
+          <select id="item-asset-account">
+            <option value="">不連動資產帳戶</option>
+          </select>
+
+          <div id="transfer-accounts-group" style="display: none; flex-direction: column; gap: 8px;">
+            <select id="item-from-account">
+              <option value="">請選擇轉出帳戶</option>
+            </select>
+            <select id="item-to-account">
+              <option value="">請選擇轉入帳戶</option>
+            </select>
+          </div>
+
+          <input type="text" id="item-name" placeholder="項目 (如: 薪水 / 午餐 / 領現)">
+          <input type="number" id="item-price" placeholder="金額">
+          <textarea id="item-note" placeholder="備註 (如: 與家人聚餐、跨行轉帳手續費...)"></textarea>
+        </div>
+        <button id="add-expense-btn">新增紀錄</button>
+
+        <div class="filter-section">
+          <label for="month-filter">檢視月份：</label>
+          <select id="month-filter">
+            <option value="all">顯示全部</option>
+          </select>
+        </div>
+
+        <ul id="expense-list"></ul>
+        <button class="clear-btn" id="clear-all-btn">清空所有紀錄</button>
+      </div>
+
+      <!-- 卡片二：🤝 借還款管理 -->
+      <div class="card">
+        <div class="card-header-flex">
+          <h3 class="section-title">🤝 借還款管理</h3>
+          <button class="btn-link" id="go-lend-page-btn">📋 完整列表 ➔</button>
+        </div>
+        
+        <div class="input-group">
+          <input type="date" id="lend-date">
+          <select id="lend-from-asset-account">
+            <option value="">選擇借出帳戶 (不連動)</option>
+          </select>
+          <input type="text" id="lend-person" placeholder="借給誰？(如: 小明)">
+          <input type="number" id="lend-amount" placeholder="借出金額">
+          <textarea id="lend-note" placeholder="備註 (如: 飲料代墊、宵夜錢...)"></textarea>
+        </div>
+        <button style="background-color: #e67e22;" id="add-lend-btn">新增借款紀錄</button>
+
+        <!-- 左側卡片清單（限制最新 3 筆） -->
+        <div id="lend-list" style="margin-top: 15px;"></div>
+      </div>
+
+    </div>
+
+    <!-- 右側面板區域 -->
+    <div class="right-panel">
+      
+      <!-- 上卡片：動態月曆 -->
+      <div class="card">
+        <div class="calendar-header">
+          <h3 style="margin: 0; font-size: 18px; color: #2c3e50;" title="點擊月曆中的日期可查看當日詳細帳目">📅 月曆檢視 <span style="font-size: 12px; color: #95a5a6; font-weight: normal;">(點擊日期查看明細)</span></h3>
+          <div class="cal-controls">
+            <button class="cal-btn" id="prev-month-btn">◀</button>
+            <select id="cal-year-select"></select>
+            <select id="cal-month-select"></select>
+            <button class="cal-btn" id="next-month-btn">▶</button>
+          </div>
+        </div>
+        <div class="calendar-grid" id="calendar-grid"></div>
+      </div>
+
+      <!-- 中卡片：💡 今日資金動向 -->
+      <div class="card">
+        <h3 class="section-title">💡 今日資金動向 (<span id="today-date-text"></span>)</h3>
+        
+        <div class="today-summary-bar">
+          <div class="today-summary-item">
+            今日收入
+            <div class="today-summary-val income-text" id="today-inc-val">+$0</div>
+          </div>
+          <div class="today-summary-item">
+            今日支出
+            <div class="today-summary-val expense-text" id="today-exp-val">-$0</div>
+          </div>
+          <div class="today-summary-item">
+            今日淨額
+            <div class="today-summary-val" id="today-net-val" style="color: #2c3e50;">$0</div>
+          </div>
+        </div>
+
+        <div class="today-flow-list" id="today-flow-list">
+          <!-- 動態渲染今日明細 -->
+        </div>
+      </div>
+
+      <!-- 下卡片：🏦 總資產瀏覽 -->
+      <div class="card">
+        <h3 class="section-title">🏦 總資產管理</h3>
+        
+        <div class="asset-summary">
+          <div>
+            <div class="asset-total-title">預估總淨資產 (Net Worth)</div>
+            <div class="asset-total-amount">$<span id="total-asset-val">0</span></div>
+          </div>
+          <div style="font-size: 32px;">💰</div>
+        </div>
+
+        <div class="asset-input-row">
+          <select id="asset-icon-input" title="選擇帳戶圖示">
+            <option value="💵">💵 現金</option>
+            <option value="🏦">🏦 銀行</option>
+            <option value="💳">💳 卡片</option>
+            <option value="📈">📈 股票</option>
+            <option value="🐷">🐷 儲蓄</option>
+            <option value="🪙">🪙 硬幣</option>
+            <option value="🏠">🏠 房產</option>
+            <option value="🚗">🚗 汽汽</option>
+            <option value="🛍️">🛍️ 購物</option>
+          </select>
+          <input type="text" id="asset-name-input" placeholder="帳戶名稱 (如: 隨身現金/郵局)">
+          <input type="number" id="asset-amount-input" placeholder="當前餘額">
+          <button id="add-asset-btn">新增</button>
+        </div>
+
+        <div class="asset-grid" id="asset-grid"></div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- 分頁 2：🤝 借還款清單總表頁面 -->
+  <div id="page-lend" class="app-container page-content">
+    <div class="card full-page-card">
+      <div class="card-header-flex">
+        <h2 style="margin: 0; color: #2c3e50;">🤝 借還款完整清單</h2>
+        <div style="font-size: 14px; color: #718096;">
+          <span id="unpaid-summary-label">全部尚未收回欠款總額：</span><strong style="color: #e74c3c; font-size: 18px;" id="unpaid-total-sum">$0</strong>
+        </div>
+      </div>
+      <p style="color: #718096; font-size: 13px; margin-top: 5px;">這裡列出了所有借出款項的明細，您可以勾選左側的方塊來進行「批次還款」。</p>
+      
+      <!-- 工具列：搜尋與排序 -->
+      <div class="table-toolbar">
+        <input type="text" id="lend-search-input" placeholder="🔍 輸入欠款人姓名或備註進行搜尋..." style="flex: 1;">
+        
+        <!-- 🌟 新增：日期區間篩選 -->
+        <div style="display: flex; align-items: center; gap: 5px; background: #fff; padding: 2px 5px; border-radius: 4px; border: 1px solid #ccc;">
+          <span style="font-size: 13px; color: #666; margin-right: 2px;">範圍:</span>
+          <input type="date" id="lend-search-start" style="width: 125px; margin: 0; border: none; padding: 4px;" title="開始日期">
+          <span style="color: #64748b;">~</span>
+          <input type="date" id="lend-search-end" style="width: 125px; margin: 0; border: none; padding: 4px;" title="結束日期">
+        </div>
+
+        <select id="lend-sort-select">
+          <option value="desc">📅 日期：由新到舊 (最新在前)</option>
+          <option value="asc">📅 日期：由舊到新 (最早在前)</option>
+        </select>
+        <button class="btn-batch-return" id="batch-return-btn">✔️ 批次還款</button>
+      </div>
+
+      <table class="lend-table">
+        <thead>
+          <tr>
+            <th style="width: 30px; text-align: center;"><input type="checkbox" id="select-all-lend" title="全選/取消全選"></th>
+            <th>欠款人姓名</th>
+            <th>借錢日期</th>
+            <th>借款金額</th>
+            <th>備註內容</th>
+            <th>借款方式 (出資帳戶)</th>
+            <th>是否還清</th>
+            <th>還款日期</th>
+            <th>還款方式 (存入帳戶)</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="lend-table-body">
+          <!-- 動態渲染表格內容 -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 分頁 3：📅 日期明細頁面 -->
+  <div id="page-daily" class="app-container page-content">
+    <div class="card full-page-card">
+      <div class="card-header-flex">
+        <h2 style="margin: 0; color: #2c3e50;" id="daily-page-title">📅 單日明細</h2>
+        <div style="font-size: 14px; color: #718096;">
+          單日淨額：<strong id="daily-net-sum" style="font-size: 18px;">$0</strong>
+        </div>
+      </div>
+      <p style="color: #718096; font-size: 13px; margin-top: 5px;">這裡列出了您選擇的日期當天的所有收入、支出與借還款紀錄。</p>
+
+      <div class="today-summary-bar" style="margin-top: 15px; justify-content: flex-start; gap: 30px; padding-left: 20px;">
+        <div class="today-summary-item" style="text-align: left;">
+          當日總計收入
+          <div class="today-summary-val income-text" id="daily-inc-val" style="font-size: 18px;">+$0</div>
+        </div>
+        <div class="today-summary-item" style="text-align: left;">
+          當日總計支出
+          <div class="today-summary-val expense-text" id="daily-exp-val" style="font-size: 18px;">-$0</div>
+        </div>
+      </div>
+
+      <table class="lend-table" style="margin-top: 15px;">
+        <thead>
+          <tr>
+            <th>類型</th>
+            <th>項目名稱 / 關聯對象</th>
+            <th>金額</th>
+            <th>連動帳戶</th>
+            <th>備註內容</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="daily-table-body">
+          <!-- 動態渲染單日明細內容 -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 1. 還款對話框 Modal -->
+  <div id="return-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <h4 id="return-modal-title">標示已還款</h4>
+      <div class="input-group">
+        <label class="modal-label">還款日期：</label>
+        <input type="date" id="return-modal-date">
+        <label class="modal-label">存入帳戶：</label>
+        <select id="return-modal-asset-account">
+          <option value="">選擇存入帳戶 (不連動)</option>
+        </select>
+      </div>
+      <div style="display: flex; gap: 8px; margin-top: 15px;">
+        <button style="background: #ccc; color: #333;" id="close-modal-btn">取消</button>
+        <button style="background: #27ae60;" id="confirm-return-btn">確認還款</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. 編輯借還款紀錄 Modal -->
+  <div id="edit-lend-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <h4>✏️ 編輯借還款明細</h4>
+      <div class="input-group">
+        <label class="modal-label">欠款人姓名：</label>
+        <input type="text" id="edit-lend-person">
+        
+        <label class="modal-label">借款金額：</label>
+        <input type="number" id="edit-lend-amount">
+
+        <label class="modal-label">備註內容：</label>
+        <textarea id="edit-lend-note" placeholder="備註內容..."></textarea>
+        
+        <label class="modal-label">借錢日期：</label>
+        <input type="date" id="edit-lend-date">
+        
+        <label class="modal-label">借款方式 (出資帳戶)：</label>
+        <select id="edit-lend-from-account">
+          <option value="">選擇借出帳戶 (不連動)</option>
+        </select>
+
+        <label class="modal-label">還款狀態：</label>
+        <select id="edit-lend-status">
+          <option value="unpaid">❌ 未還清</option>
+          <option value="paid">✅ 已還清</option>
+        </select>
+
+        <div id="edit-return-group" style="display: none; flex-direction: column; gap: 8px; margin-top: 5px; background: #f8fafc; padding: 8px; border-radius: 6px;">
+          <label class="modal-label">還款日期：</label>
+          <input type="date" id="edit-return-date">
+          
+          <label class="modal-label">還款方式 (存入帳戶)：</label>
+          <select id="edit-return-to-account">
+            <option value="">選擇存入帳戶 (不連動)</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 8px; margin-top: 15px;">
+        <button style="background: #ccc; color: #333;" id="close-edit-modal-btn">取消</button>
+        <button style="background: #3498db;" id="confirm-edit-lend-btn">儲存修改</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. 查看備註與款項細節 Modal -->
+  <div id="detail-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <h4>🔍 借還款款項細節</h4>
+      <div id="detail-content-body">
+        <!-- 動態渲染詳細資訊 -->
+      </div>
+      <div style="margin-top: 15px;">
+        <button style="background: #3498db;" id="close-detail-modal-btn">關閉視窗</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 引進 Firebase SDK 並整合所有 JavaScript -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDEJPftp1bF2WM6DcoOd0tFO3YA-wcBtiQ",
+      authDomain: "yyu2005-65d6a.firebaseapp.com",
+      projectId: "yyu2005-65d6a",
+      storageBucket: "yyu2005-65d6a.firebasestorage.app",
+      messagingSenderId: "894417929543",
+      appId: "1:894417929543:web:3cf724ba4f20e59498b862",
+      measurementId: "G-7C6BE25D88"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const docRef = doc(db, "accounting", "my_data");
+
+    // 全域狀態
+    let expenses = [];
+    let lendRecords = [];
+    let assetAccounts = [
+      { id: 1, icon: '💵', name: '隨身現金', amount: 0 },
+      { id: 2, icon: '🏦', name: '銀行存款', amount: 1020 }
+    ];
+    let bookTitle = '記帳';
+    let isRemoteUpdate = false;
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    let viewingDate = todayStr;
+
+    document.getElementById('item-date').value = todayStr;
+    document.getElementById('lend-date').value = todayStr;
+    document.getElementById('today-date-text').innerText = todayStr;
+
+    let currentViewYear = new Date().getFullYear();
+    let currentViewMonth = new Date().getMonth() + 1;
+    let pendingReturnIds = []; 
+    let editingLendId = null;
+
+    // 🔀 分頁切換邏輯
+    const tabMain = document.getElementById('tab-main');
+    const tabLend = document.getElementById('tab-lend');
+    const tabDaily = document.getElementById('tab-daily');
+    const pageMain = document.getElementById('page-main');
+    const pageLend = document.getElementById('page-lend');
+    const pageDaily = document.getElementById('page-daily');
+
+    function switchTab(target) {
+      tabMain.classList.remove('active'); pageMain.classList.remove('active');
+      tabLend.classList.remove('active'); pageLend.classList.remove('active');
+      tabDaily.classList.remove('active'); pageDaily.classList.remove('active');
+
+      if (target === 'main') {
+        tabMain.classList.add('active');
+        pageMain.classList.add('active');
+      } else if (target === 'lend') {
+        tabLend.classList.add('active');
+        pageLend.classList.add('active');
+      } else if (target === 'daily') {
+        tabDaily.classList.add('active');
+        pageDaily.classList.add('active');
+        renderDailyView();
+      }
+    }
+
+    tabMain.addEventListener('click', () => switchTab('main'));
+    tabLend.addEventListener('click', () => switchTab('lend'));
+    tabDaily.addEventListener('click', () => switchTab('daily'));
+    document.getElementById('go-lend-page-btn').addEventListener('click', () => switchTab('lend'));
+
+    // 事件監聽繫結
+    document.getElementById('title-btn').addEventListener('click', editBookTitle);
+    document.getElementById('add-expense-btn').addEventListener('click', addExpense);
+    document.getElementById('add-lend-btn').addEventListener('click', addLendRecord);
+    document.getElementById('add-asset-btn').addEventListener('click', addAssetAccount);
+    document.getElementById('month-filter').addEventListener('change', onMonthFilterChange);
+    document.getElementById('clear-all-btn').addEventListener('click', clearAllData);
+    document.getElementById('close-modal-btn').addEventListener('click', closeReturnModal);
+    document.getElementById('confirm-return-btn').addEventListener('click', confirmReturn);
+    document.getElementById('close-detail-modal-btn').addEventListener('click', closeDetailModal);
+    
+    document.getElementById('close-edit-modal-btn').addEventListener('click', closeEditModal);
+    document.getElementById('confirm-edit-lend-btn').addEventListener('click', confirmEditLend);
+    document.getElementById('edit-lend-status').addEventListener('change', (e) => {
+      document.getElementById('edit-return-group').style.display = e.target.value === 'paid' ? 'flex' : 'none';
+    });
+
+    // 🌟 綁定日期範圍篩選與文字搜尋的事件
+    document.getElementById('lend-search-input').addEventListener('input', renderLendRecords);
+    document.getElementById('lend-search-start').addEventListener('change', renderLendRecords);
+    document.getElementById('lend-search-end').addEventListener('change', renderLendRecords);
+    document.getElementById('lend-sort-select').addEventListener('change', renderLendRecords);
+
+    // 🌟 批次還款與全選事件
+    document.getElementById('select-all-lend').addEventListener('change', (e) => {
+      const isChecked = e.target.checked;
+      const checkboxes = document.querySelectorAll('.lend-checkbox');
+      checkboxes.forEach(cb => {
+        if (!cb.disabled) cb.checked = isChecked;
+      });
+      updateCheckedSum();
+    });
+
+    document.getElementById('lend-table-body').addEventListener('change', (e) => {
+      if (e.target.classList.contains('lend-checkbox')) {
+        updateCheckedSum();
+        const allCheckboxes = document.querySelectorAll('.lend-checkbox');
+        const checkedCheckboxes = document.querySelectorAll('.lend-checkbox:checked');
+        document.getElementById('select-all-lend').checked = (allCheckboxes.length > 0 && allCheckboxes.length === checkedCheckboxes.length);
+      }
+    });
+
+    document.getElementById('batch-return-btn').addEventListener('click', () => {
+      const selected = document.querySelectorAll('.lend-checkbox:checked');
+      if (selected.length === 0) {
+        alert('請先在清單左側勾選想要還款的項目！');
+        return;
+      }
+      const ids = Array.from(selected).map(cb => parseInt(cb.value));
+      openReturnModal(ids);
+    });
+
+    // 月曆選擇控制元件事件
+    document.getElementById('cal-year-select').addEventListener('change', (e) => {
+      currentViewYear = parseInt(e.target.value);
+      renderCalendar();
+    });
+    document.getElementById('cal-month-select').addEventListener('change', (e) => {
+      currentViewMonth = parseInt(e.target.value);
+      renderCalendar();
+    });
+    document.getElementById('prev-month-btn').addEventListener('click', () => changeCalendarMonth(-1));
+    document.getElementById('next-month-btn').addEventListener('click', () => changeCalendarMonth(1));
+
+    document.getElementById('item-type').addEventListener('change', (e) => {
+      const type = e.target.value;
+      const normalAccountSelect = document.getElementById('item-asset-account');
+      const transferGroup = document.getElementById('transfer-accounts-group');
+      const nameInput = document.getElementById('item-name');
+
+      if (type === 'transfer') {
+        normalAccountSelect.style.display = 'none';
+        transferGroup.style.display = 'flex';
+        if (!nameInput.value) nameInput.value = '帳戶轉帳';
+      } else {
+        normalAccountSelect.style.display = 'block';
+        transferGroup.style.display = 'none';
+        if (nameInput.value === '帳戶轉帳') nameInput.value = '';
+      }
+    });
+
+    function initCalendarSelects() {
+      const yearSelect = document.getElementById('cal-year-select');
+      const monthSelect = document.getElementById('cal-month-select');
+      
+      yearSelect.innerHTML = '';
+      monthSelect.innerHTML = '';
+
+      const thisYear = new Date().getFullYear();
+      for (let y = thisYear - 5; y <= thisYear + 5; y++) {
+        const opt = document.createElement('option');
+        opt.value = y;
+        opt.textContent = `${y} 年`;
+        if (y === currentViewYear) opt.selected = true;
+        yearSelect.appendChild(opt);
+      }
+
+      for (let m = 1; m <= 12; m++) {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = `${m < 10 ? '0' + m : m} 月`;
+        if (m === currentViewMonth) opt.selected = true;
+        monthSelect.appendChild(opt);
+      }
+    }
+
+    function changeCalendarMonth(offset) {
+      currentViewMonth += offset;
+      if (currentViewMonth > 12) {
+        currentViewMonth = 1;
+        currentViewYear++;
+      } else if (currentViewMonth < 1) {
+        currentViewMonth = 12;
+        currentViewYear--;
+      }
+      
+      document.getElementById('cal-year-select').value = currentViewYear;
+      document.getElementById('cal-month-select').value = currentViewMonth;
+      renderCalendar();
+    }
+
+    onSnapshot(docRef, (docSnap) => {
+      const statusEl = document.getElementById('sync-status');
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        isRemoteUpdate = true;
+        
+        if (data.expenses) expenses = data.expenses;
+        if (data.lendRecords) lendRecords = data.lendRecords;
+        if (data.assetAccounts) assetAccounts = data.assetAccounts;
+        if (data.bookTitle) {
+          bookTitle = data.bookTitle;
+          document.getElementById('book-title').innerText = data.bookTitle;
+          document.title = data.bookTitle;
+        }
+
+        updateMonthOptions();
+        renderAssets();
+        renderExpenses();
+        renderLendRecords();
+        renderCalendar();
+        renderTodayFlow();
+        renderDailyView();
+        
+        isRemoteUpdate = false;
+      } else {
+        updateMonthOptions();
+        renderAssets();
+        renderExpenses();
+        renderLendRecords();
+        renderCalendar();
+        renderTodayFlow();
+        renderDailyView();
+      }
+      statusEl.className = "sync-status online";
+      statusEl.innerText = "🟢 雲端連線正常 (即時同步中)";
+    }, (error) => {
+      console.error("Firebase 連線失敗:", error);
+      const statusEl = document.getElementById('sync-status');
+      statusEl.className = "sync-status offline";
+      statusEl.innerText = "🔴 雲端連線失敗 (請確認安全規則設定)";
+      
+      updateMonthOptions();
+      renderAssets();
+      renderExpenses();
+      renderLendRecords();
+      renderCalendar();
+      renderTodayFlow();
+      renderDailyView();
+    });
+
+    async function saveToCloud() {
+      if (isRemoteUpdate) return;
+      try {
+        await setDoc(docRef, {
+          expenses: expenses,
+          lendRecords: lendRecords,
+          assetAccounts: assetAccounts,
+          bookTitle: bookTitle
+        });
+      } catch (e) {
+        console.error("同步至雲端失敗:", e);
+      }
+    }
+
+    function editBookTitle() {
+      const currentTitle = document.getElementById('book-title').innerText;
+      const newTitle = prompt('請輸入新的記帳本名稱：', currentTitle);
+      
+      if (newTitle && newTitle.trim() !== '') {
+        const trimmedTitle = newTitle.trim();
+        document.getElementById('book-title').innerText = trimmedTitle;
+        document.title = trimmedTitle;
+        bookTitle = trimmedTitle;
+        saveToCloud();
+      }
+    }
+
+    function clearAllData() {
+      if (confirm('⚠️ 確定要清空所有紀錄嗎？此動作無法復原！')) {
+        expenses = [];
+        updateMonthOptions();
+        renderExpenses();
+        renderTodayFlow();
+        renderDailyView();
+        saveToCloud();
+      }
+    }
+
+    /* ---------------- 記帳邏輯 ---------------- */
+    function addExpense() {
+      const date = document.getElementById('item-date').value;
+      const type = document.getElementById('item-type').value;
+      const assetAccountId = document.getElementById('item-asset-account').value;
+      const fromAccountId = document.getElementById('item-from-account').value;
+      const toAccountId = document.getElementById('item-to-account').value;
+      const name = document.getElementById('item-name').value;
+      const price = Number(document.getElementById('item-price').value);
+      const note = document.getElementById('item-note').value.trim();
+
+      if (!date || name === '' || price <= 0) {
+        alert('請完整輸入日期、項目和金額！');
+        return;
+      }
+
+      if (type === 'transfer') {
+        if (!fromAccountId || !toAccountId) {
+          alert('請選擇轉出與轉入帳戶！');
+          return;
+        }
+        if (fromAccountId === toAccountId) {
+          alert('轉出與轉入帳戶不能相同！');
+          return;
+        }
+
+        const fromAsset = assetAccounts.find(a => a.id === Number(fromAccountId));
+        const toAsset = assetAccounts.find(a => a.id === Number(toAccountId));
+
+        if (fromAsset) fromAsset.amount -= price;
+        if (toAsset) toAsset.amount += price;
+
+        expenses.push({
+          id: Date.now(),
+          date,
+          type,
+          fromAccountId: Number(fromAccountId),
+          toAccountId: Number(toAccountId),
+          name: name || '帳戶轉帳',
+          price,
+          note
+        });
+
+      } else {
+        if (assetAccountId) {
+          const targetAsset = assetAccounts.find(a => a.id === Number(assetAccountId));
+          if (targetAsset) {
+            if (type === 'income') {
+              targetAsset.amount += price;
+            } else {
+              targetAsset.amount -= price;
+            }
+          }
+        }
+
+        expenses.push({ 
+          id: Date.now(),
+          date, 
+          type, 
+          assetAccountId: assetAccountId ? Number(assetAccountId) : null,
+          name, 
+          price, 
+          note 
+        });
+      }
+
+      renderAssets();
+      updateMonthOptions();
+      renderExpenses();
+      renderTodayFlow();
+      renderDailyView();
+      saveToCloud();
+
+      document.getElementById('item-name').value = '';
+      document.getElementById('item-price').value = '';
+      document.getElementById('item-note').value = '';
+    }
+
+    function deleteSingleExpense(id) {
+      const index = expenses.findIndex(e => e.id === id);
+      if (index === -1) return;
+
+      const item = expenses[index];
+
+      if (item.type === 'transfer') {
+        if (item.fromAccountId) {
+          const fromAsset = assetAccounts.find(a => a.id === item.fromAccountId);
+          if (fromAsset) fromAsset.amount += item.price;
+        }
+        if (item.toAccountId) {
+          const toAsset = assetAccounts.find(a => a.id === item.toAccountId);
+          if (toAsset) toAsset.amount -= item.price;
+        }
+      } else if (item.assetAccountId) {
+        const targetAsset = assetAccounts.find(a => a.id === item.assetAccountId);
+        if (targetAsset) {
+          if (item.type === 'income') {
+            targetAsset.amount -= item.price;
+          } else {
+            targetAsset.amount += item.price;
+          }
+        }
+      }
+
+      expenses.splice(index, 1);
+      renderAssets();
+      updateMonthOptions();
+      renderExpenses();
+      renderTodayFlow();
+      renderDailyView();
+      saveToCloud();
+    }
+
+    function renderExpenses() {
+      const list = document.getElementById('expense-list');
+      const filterValue = document.getElementById('month-filter').value;
+      list.innerHTML = '';
+
+      let totalInc = 0;
+      let totalExp = 0;
+
+      const filteredExpenses = expenses.filter(item => {
+        if (filterValue === 'all') return true;
+        return item.date.startsWith(filterValue);
+      });
+
+      filteredExpenses.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      filteredExpenses.forEach(item => {
+        if (item.type === 'income') totalInc += item.price;
+        if (item.type === 'expense') totalExp += item.price;
+
+        const li = document.createElement('li');
+        let typeBadge = '';
+        let accountTag = '';
+
+        if (item.type === 'income') {
+          typeBadge = `<span class="badge-income">[收入]</span>`;
+          if (item.assetAccountId) {
+            const acc = assetAccounts.find(a => a.id === item.assetAccountId);
+            if (acc) accountTag = `<span class="item-account-tag">${acc.icon}${acc.name}</span>`;
+          }
+        } else if (item.type === 'expense') {
+          typeBadge = `<span class="badge-expense">[支出]</span>`;
+          if (item.assetAccountId) {
+            const acc = assetAccounts.find(a => a.id === item.assetAccountId);
+            if (acc) accountTag = `<span class="item-account-tag">${acc.icon}${acc.name}</span>`;
+          }
+        } else if (item.type === 'transfer') {
+          typeBadge = `<span class="badge-transfer">[轉帳]</span>`;
+          const fAcc = assetAccounts.find(a => a.id === item.fromAccountId);
+          const tAcc = assetAccounts.find(a => a.id === item.toAccountId);
+          const fName = fAcc ? `${fAcc.icon}${fAcc.name}` : '未知';
+          const tName = tAcc ? `${tAcc.icon}${tAcc.name}` : '未知';
+          accountTag = `<span class="item-account-tag">${fName} ➔ ${tName}</span>`;
+        }
+
+        const noteHtml = item.note ? `<div class="item-note">💡 ${escapeHtml(item.note)}</div>` : '';
+
+        li.innerHTML = `
+          <div class="item-left">
+            <div class="item-title-row">
+              <span class="item-date">${item.date}</span>
+              ${typeBadge}
+              <strong>${escapeHtml(item.name)}</strong>
+              ${accountTag}
+            </div>
+            ${noteHtml}
+          </div>
+          <div class="item-right">
+            <span>$${item.price}</span>
+            <button class="delete-item-btn" title="刪除本筆紀錄">✕</button>
+          </div>
+        `;
+
+        li.querySelector('.delete-item-btn').addEventListener('click', () => deleteSingleExpense(item.id));
+        list.appendChild(li);
+      });
+
+      document.getElementById('total-income').innerText = `$${totalInc}`;
+      document.getElementById('total-expense').innerText = `$${totalExp}`;
+      document.getElementById('net-balance').innerText = `${totalInc - totalExp}`;
+    }
+
+    function updateMonthOptions() {
+      const select = document.getElementById('month-filter');
+      const currentSelected = select.value;
+      const months = [...new Set(expenses.map(item => item.date.substring(0, 7)))].sort().reverse();
+
+      select.innerHTML = '<option value="all">顯示全部</option>';
+      months.forEach(m => {
+        const option = document.createElement('option');
+        option.value = m;
+        option.textContent = m;
+        select.appendChild(option);
+      });
+
+      if (months.includes(currentSelected) || currentSelected === 'all') {
+        select.value = currentSelected;
+      }
+    }
+
+    function onMonthFilterChange() {
+      renderExpenses();
+    }
+
+    /* ---------------- 🤝 借還款邏輯 ---------------- */
+    function addLendRecord() {
+      const date = document.getElementById('lend-date').value;
+      const fromAccountId = document.getElementById('lend-from-asset-account').value;
+      const person = document.getElementById('lend-person').value.trim();
+      const amount = Number(document.getElementById('lend-amount').value);
+      const note = document.getElementById('lend-note').value.trim();
+
+      if (!date || !person || amount <= 0) {
+        alert('請完整輸入借錢日期、對象和金額！');
+        return;
+      }
+
+      if (fromAccountId) {
+        const targetAsset = assetAccounts.find(a => a.id === Number(fromAccountId));
+        if (targetAsset) targetAsset.amount -= amount;
+      }
+
+      lendRecords.push({
+        id: Date.now(),
+        date,
+        person,
+        amount,
+        note,
+        fromAccountId: fromAccountId ? Number(fromAccountId) : null,
+        isReturned: false,
+        returnDate: null,
+        returnToAccountId: null
+      });
+
+      renderAssets();
+      renderLendRecords();
+      renderTodayFlow();
+      renderDailyView();
+      saveToCloud();
+
+      document.getElementById('lend-person').value = '';
+      document.getElementById('lend-amount').value = '';
+      document.getElementById('lend-note').value = '';
+    }
+
+    function openReturnModal(ids) {
+      if (!Array.isArray(ids)) {
+        pendingReturnIds = [ids];
+      } else {
+        pendingReturnIds = ids;
+      }
+      
+      const titleEl = document.getElementById('return-modal-title');
+      if (pendingReturnIds.length > 1) {
+        titleEl.innerText = `標示已還款 (共 ${pendingReturnIds.length} 筆)`;
+      } else {
+        titleEl.innerText = `標示已還款`;
+      }
+
+      document.getElementById('return-modal-date').value = new Date().toISOString().split('T')[0];
+      document.getElementById('return-modal').style.display = 'flex';
+    }
+
+    function closeReturnModal() {
+      document.getElementById('return-modal').style.display = 'none';
+      pendingReturnIds = [];
+    }
+
+    function confirmReturn() {
+      if (pendingReturnIds.length === 0) return;
+
+      const rDate = document.getElementById('return-modal-date').value;
+      const rToAccountId = document.getElementById('return-modal-asset-account').value;
+
+      if (!rDate) {
+        alert('請選擇還款日期！');
+        return;
+      }
+
+      let totalAmountReturned = 0;
+
+      pendingReturnIds.forEach(id => {
+        const record = lendRecords.find(r => r.id === id);
+        if (record && !record.isReturned) {
+          record.isReturned = true;
+          record.returnDate = rDate;
+          record.returnToAccountId = rToAccountId ? Number(rToAccountId) : null;
+          totalAmountReturned += record.amount;
+        }
+      });
+
+      if (rToAccountId && totalAmountReturned > 0) {
+        const targetAsset = assetAccounts.find(a => a.id === Number(rToAccountId));
+        if (targetAsset) targetAsset.amount += totalAmountReturned;
+      }
+
+      closeReturnModal();
+      renderAssets();
+      renderLendRecords();
+      renderTodayFlow();
+      renderDailyView();
+      saveToCloud();
+    }
+
+    function openEditModal(id) {
+      editingLendId = id;
+      const item = lendRecords.find(r => r.id === id);
+      if (!item) return;
+
+      document.getElementById('edit-lend-person').value = item.person;
+      document.getElementById('edit-lend-amount').value = item.amount;
+      document.getElementById('edit-lend-note').value = item.note || '';
+      document.getElementById('edit-lend-date').value = item.date;
+      document.getElementById('edit-lend-from-account').value = item.fromAccountId || '';
+
+      const statusSelect = document.getElementById('edit-lend-status');
+      statusSelect.value = item.isReturned ? 'paid' : 'unpaid';
+
+      const returnGroup = document.getElementById('edit-return-group');
+      if (item.isReturned) {
+        returnGroup.style.display = 'flex';
+        document.getElementById('edit-return-date').value = item.returnDate || todayStr;
+        document.getElementById('edit-return-to-account').value = item.returnToAccountId || '';
+      } else {
+        returnGroup.style.display = 'none';
+        document.getElementById('edit-return-date').value = todayStr;
+        document.getElementById('edit-return-to-account').value = '';
+      }
+
+      document.getElementById('edit-lend-modal').style.display = 'flex';
+    }
+
+    function closeEditModal() {
+      document.getElementById('edit-lend-modal').style.display = 'none';
+      editingLendId = null;
+    }
+
+    function confirmEditLend() {
+      if (!editingLendId) return;
+
+      const item = lendRecords.find(r => r.id === editingLendId);
+      if (!item) return;
+
+      const newPerson = document.getElementById('edit-lend-person').value.trim();
+      const newAmount = Number(document.getElementById('edit-lend-amount').value);
+      const newNote = document.getElementById('edit-lend-note').value.trim();
+      const newDate = document.getElementById('edit-lend-date').value;
+      const newFromAccount = document.getElementById('edit-lend-from-account').value;
+      const newStatus = document.getElementById('edit-lend-status').value;
+
+      if (!newPerson || newAmount <= 0 || !newDate) {
+        alert('請填寫完整的姓名、金額與日期！');
+        return;
+      }
+
+      if (item.fromAccountId) {
+        const oldFromAsset = assetAccounts.find(a => a.id === item.fromAccountId);
+        if (oldFromAsset) oldFromAsset.amount += item.amount;
+      }
+      if (item.isReturned && item.returnToAccountId) {
+        const oldToAsset = assetAccounts.find(a => a.id === item.returnToAccountId);
+        if (oldToAsset) oldToAsset.amount -= item.amount;
+      }
+
+      item.person = newPerson;
+      item.amount = newAmount;
+      item.note = newNote;
+      item.date = newDate;
+      item.fromAccountId = newFromAccount ? Number(newFromAccount) : null;
+
+      if (newStatus === 'paid') {
+        const retDate = document.getElementById('edit-return-date').value;
+        const retToAcc = document.getElementById('edit-return-to-account').value;
+
+        if (!retDate) {
+          alert('請輸入還款日期！');
+          return;
+        }
+
+        item.isReturned = true;
+        item.returnDate = retDate;
+        item.returnToAccountId = retToAcc ? Number(retToAcc) : null;
+
+        if (retToAcc) {
+          const newToAsset = assetAccounts.find(a => a.id === Number(retToAcc));
+          if (newToAsset) newToAsset.amount += newAmount;
+        }
+      } else {
+        item.isReturned = false;
+        item.returnDate = null;
+        item.returnToAccountId = null;
+      }
+
+      if (item.fromAccountId) {
+        const newFromAsset = assetAccounts.find(a => a.id === item.fromAccountId);
+        if (newFromAsset) newFromAsset.amount -= newAmount;
+      }
+
+      closeEditModal();
+      renderAssets();
+      renderLendRecords();
+      renderTodayFlow();
+      renderDailyView();
+      saveToCloud();
+    }
+
+    function deleteLendRecord(id) {
+      if (confirm('確定要刪除這筆借款紀錄嗎？')) {
+        const index = lendRecords.findIndex(r => r.id === id);
+        if (index === -1) return;
+
+        const item = lendRecords[index];
+
+        if (item.fromAccountId) {
+          const fromAsset = assetAccounts.find(a => a.id === item.fromAccountId);
+          if (fromAsset) fromAsset.amount += item.amount;
+        }
+        if (item.isReturned && item.returnToAccountId) {
+          const toAsset = assetAccounts.find(a => a.id === item.returnToAccountId);
+          if (toAsset) toAsset.amount -= item.amount;
+        }
+
+        lendRecords.splice(index, 1);
+        renderAssets();
+        renderLendRecords();
+        renderTodayFlow();
+        renderDailyView();
+        saveToCloud();
+      }
+    }
+
+    function openDetailModal(id) {
+      const item = lendRecords.find(r => r.id === id);
+      if (!item) return;
+
+      const fAcc = assetAccounts.find(a => a.id === item.fromAccountId);
+      const tAcc = assetAccounts.find(a => a.id === item.returnToAccountId);
+
+      const fName = fAcc ? `${fAcc.icon} ${fAcc.name}` : '未選擇連動帳戶';
+      const tName = tAcc ? `${tAcc.icon} ${tAcc.name}` : '未選擇連動帳戶';
+
+      const bodyHtml = `
+        <div class="detail-row"><span class="detail-label">欠款人姓名</span><span class="detail-val">${escapeHtml(item.person)}</span></div>
+        <div class="detail-row"><span class="detail-label">借款金額</span><span class="detail-val" style="color: #e67e22;">$${item.amount}</span></div>
+        <div class="detail-row"><span class="detail-label">借錢日期</span><span class="detail-val">${item.date}</span></div>
+        <div class="detail-row"><span class="detail-label">出資帳戶</span><span class="detail-val">${fName}</span></div>
+        <div class="detail-row"><span class="detail-label">還款狀態</span><span class="detail-val">${item.isReturned ? '✅ 已還清' : '❌ 尚未還清'}</span></div>
+        ${item.isReturned ? `
+          <div class="detail-row"><span class="detail-label">還款日期</span><span class="detail-val">${item.returnDate || '-'}</span></div>
+          <div class="detail-row"><span class="detail-label">存入帳戶</span><span class="detail-val">${tName}</span></div>
+        ` : ''}
+        <div style="margin-top: 10px;">
+          <span class="detail-label">備註明細內容：</span>
+          <div class="detail-note-box">${item.note ? escapeHtml(item.note) : '無備註資訊'}</div>
+        </div>
+      `;
+
+      document.getElementById('detail-content-body').innerHTML = bodyHtml;
+      document.getElementById('detail-modal').style.display = 'flex';
+    }
+
+    function closeDetailModal() {
+      document.getElementById('detail-modal').style.display = 'none';
+    }
+
+    // 🌟 提取篩選邏輯，確保所有計算和列表都是一致的
+    function getFilteredLendRecords() {
+      const rawSearchInput = document.getElementById('lend-search-input').value.trim();
+      const searchKeyword = rawSearchInput.toLowerCase();
+      const startDate = document.getElementById('lend-search-start').value;
+      const endDate = document.getElementById('lend-search-end').value;
+
+      return lendRecords.filter(item => {
+        // 姓名或備註匹配
+        const pMatch = item.person.toLowerCase().includes(searchKeyword);
+        const nMatch = (item.note || '').toLowerCase().includes(searchKeyword);
+        const keywordMatch = pMatch || nMatch;
+
+        // 日期區間匹配
+        let dateMatch = true;
+        if (startDate) dateMatch = dateMatch && (item.date >= startDate);
+        if (endDate) dateMatch = dateMatch && (item.date <= endDate);
+
+        return keywordMatch && dateMatch;
+      });
+    }
+
+    function updateCheckedSum() {
+      const selected = document.querySelectorAll('.lend-checkbox:checked');
+      const summaryLabel = document.getElementById('unpaid-summary-label');
+      const sumEl = document.getElementById('unpaid-total-sum');
+
+      if (selected.length > 0) {
+        let sum = 0;
+        selected.forEach(cb => {
+          const id = parseInt(cb.value);
+          const record = lendRecords.find(r => r.id === id);
+          if (record) sum += record.amount;
+        });
+        summaryLabel.innerText = `☑️ 已勾選欠款總額：`;
+        sumEl.innerText = `$${sum}`;
+        sumEl.style.color = '#8e44ad'; 
+      } else {
+        const displayRecords = getFilteredLendRecords();
+        const unpaidSum = displayRecords
+          .filter(r => !r.isReturned)
+          .reduce((sum, r) => sum + r.amount, 0);
+
+        const rawSearchInput = document.getElementById('lend-search-input').value.trim();
+        const startDate = document.getElementById('lend-search-start').value;
+        const endDate = document.getElementById('lend-search-end').value;
+
+        if (rawSearchInput === '' && !startDate && !endDate) {
+          summaryLabel.innerText = '全部尚未收回欠款總額：';
+        } else {
+          summaryLabel.innerText = `🔍 篩選結果未收回總額：`;
+        }
+        sumEl.innerText = `$${unpaidSum}`;
+        sumEl.style.color = '#e74c3c'; 
+      }
+    }
+
+    function renderLendRecords() {
+      const leftContainer = document.getElementById('lend-list');
+      const tableBody = document.getElementById('lend-table-body');
+      const sortOrder = document.getElementById('lend-sort-select').value;
+
+      // 取得經過篩選後的陣列
+      let displayRecords = getFilteredLendRecords();
+
+      leftContainer.innerHTML = '';
+      const recentLends = [...lendRecords].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 3);
+
+      recentLends.forEach(item => {
+        const div = document.createElement('div');
+        div.className = `lend-item ${item.isReturned ? 'returned' : ''}`;
+
+        const noteText = item.note ? `<div class="lend-note-info">💡 ${escapeHtml(item.note)}</div>` : '';
+
+        div.innerHTML = `
+          <div class="lend-header-row">
+            <span class="lend-info">🤝 ${escapeHtml(item.person)} : $${item.amount}</span>
+            <span class="lend-date-info">${item.date}</span>
+          </div>
+          ${noteText}
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
+            <div>${item.isReturned ? '<span class="returned-tag">✅ 已還清</span>' : ''}</div>
+            <div>
+              ${!item.isReturned ? `<button class="action-btn btn-return btn-rtn-action">標示已還款</button>` : ''}
+              <button class="action-btn btn-del-item btn-del-action">刪除</button>
+            </div>
+          </div>
+        `;
+
+        if (!item.isReturned) {
+          div.querySelector('.btn-rtn-action').addEventListener('click', () => openReturnModal(item.id));
+        }
+        div.querySelector('.btn-del-action').addEventListener('click', () => deleteLendRecord(item.id));
+
+        leftContainer.appendChild(div);
+      });
+
+      tableBody.innerHTML = '';
+      
+      displayRecords.sort((a, b) => {
+        const dA = new Date(a.date);
+        const dB = new Date(b.date);
+        return sortOrder === 'desc' ? dB - dA : dA - dB;
+      });
+
+      document.getElementById('select-all-lend').checked = false;
+
+      displayRecords.forEach(item => {
+        const tr = document.createElement('tr');
+
+        const fAcc = assetAccounts.find(a => a.id === item.fromAccountId);
+        const tAcc = assetAccounts.find(a => a.id === item.returnToAccountId);
+
+        const fName = fAcc ? `${fAcc.icon}${fAcc.name}` : '-';
+        const tName = tAcc ? `${tAcc.icon}${tAcc.name}` : '-';
+
+        const statusTag = item.isReturned 
+          ? `<span class="status-badge status-paid">✅ 已還清</span>` 
+          : `<span class="status-badge status-unpaid">❌ 未還清</span>`;
+
+        const checkboxHtml = item.isReturned 
+          ? `<input type="checkbox" disabled title="已經還清囉">`
+          : `<input type="checkbox" class="lend-checkbox" value="${item.id}">`;
+
+        tr.innerHTML = `
+          <td style="text-align: center;">${checkboxHtml}</td>
+          <td><strong>${escapeHtml(item.person)}</strong></td>
+          <td>${item.date}</td>
+          <td style="font-weight: bold; color: #e67e22;">$${item.amount}</td>
+          <td class="table-note-cell" title="${escapeHtml(item.note || '')}">${item.note ? escapeHtml(item.note) : '-'}</td>
+          <td>${fName}</td>
+          <td>${statusTag}</td>
+          <td>${item.returnDate || '-'}</td>
+          <td>${tName}</td>
+          <td>
+            <div style="display: flex; gap: 4px;">
+              <button class="action-btn btn-detail-item btn-tbl-detail">詳情</button>
+              <button class="action-btn btn-edit-item btn-tbl-edit">編輯</button>
+              ${!item.isReturned ? `<button class="action-btn btn-return btn-tbl-rtn">還款</button>` : ''}
+              <button class="action-btn btn-del-item btn-tbl-del">刪除</button>
+            </div>
+          </td>
+        `;
+
+        tr.querySelector('.btn-tbl-detail').addEventListener('click', () => openDetailModal(item.id));
+        tr.querySelector('.btn-tbl-edit').addEventListener('click', () => openEditModal(item.id));
+        if (!item.isReturned) {
+          tr.querySelector('.btn-tbl-rtn').addEventListener('click', () => openReturnModal(item.id));
+        }
+        tr.querySelector('.btn-tbl-del').addEventListener('click', () => deleteLendRecord(item.id));
+
+        tableBody.appendChild(tr);
+      });
+
+      updateCheckedSum();
+    }
+
+    /* ---------------- 📅 月曆檢視邏輯 ---------------- */
+    function renderCalendar() {
+      initCalendarSelects();
+      const grid = document.getElementById('calendar-grid');
+      grid.innerHTML = '';
+
+      const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+      weekdays.forEach(day => {
+        const header = document.createElement('div');
+        header.className = 'weekday-header';
+        header.innerText = day;
+        grid.appendChild(header);
+      });
+
+      const firstDay = new Date(currentViewYear, currentViewMonth - 1, 1).getDay();
+      const daysInMonth = new Date(currentViewYear, currentViewMonth, 0).getDate();
+
+      for (let i = 0; i < firstDay; i++) {
+        const emptyCell = document.createElement('div');
+        emptyCell.className = 'day-cell empty';
+        grid.appendChild(emptyCell);
+      }
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const cell = document.createElement('div');
+        cell.className = 'day-cell';
+
+        const monthStr = currentViewMonth < 10 ? `0${currentViewMonth}` : currentViewMonth;
+        const dayStr = day < 10 ? `0${day}` : day;
+        const fullDateStr = `${currentViewYear}-${monthStr}-${dayStr}`;
+
+        if (fullDateStr === todayStr) {
+          cell.classList.add('today');
+        }
+
+        const dayNum = document.createElement('div');
+        dayNum.className = 'day-number';
+        dayNum.innerText = day;
+        cell.appendChild(dayNum);
+
+        const dayExpenses = expenses.filter(e => e.date === fullDateStr);
+        let incSum = 0;
+        let expSum = 0;
+
+        dayExpenses.forEach(e => {
+          if (e.type === 'income') incSum += e.price;
+          if (e.type === 'expense') expSum += e.price;
+        });
+
+        const badgeBox = document.createElement('div');
+        if (incSum > 0) {
+          const incBadge = document.createElement('div');
+          incBadge.className = 'cal-badge cal-inc';
+          incBadge.innerText = `+$${incSum}`;
+          badgeBox.appendChild(incBadge);
+        }
+        if (expSum > 0) {
+          const expBadge = document.createElement('div');
+          expBadge.className = 'cal-badge cal-exp';
+          expBadge.innerText = `-$${expSum}`;
+          badgeBox.appendChild(expBadge);
+        }
+
+        cell.appendChild(badgeBox);
+
+        cell.addEventListener('click', () => {
+          viewingDate = fullDateStr;
+          switchTab('daily');
+        });
+
+        grid.appendChild(cell);
+      }
+    }
+
+    /* ---------------- 💡 獨立分頁：日期單日明細 ---------------- */
+    function renderDailyView() {
+      document.getElementById('daily-page-title').innerText = `📅 單日明細 (${viewingDate})`;
+      const tbody = document.getElementById('daily-table-body');
+      tbody.innerHTML = '';
+
+      let incTotal = 0;
+      let expTotal = 0;
+
+      const dayExpenses = expenses.filter(e => e.date === viewingDate);
+      const dayLends = lendRecords.filter(l => l.date === viewingDate);
+      const dayReturns = lendRecords.filter(l => l.isReturned && l.returnDate === viewingDate);
+
+      let allItems = [];
+
+      dayExpenses.forEach(e => {
+        if (e.type === 'income') incTotal += e.price;
+        if (e.type === 'expense') expTotal += e.price;
+        allItems.push({ ...e, _source: 'expense' });
+      });
+      dayLends.forEach(l => allItems.push({ ...l, _source: 'lend' }));
+      dayReturns.forEach(r => allItems.push({ ...r, _source: 'return' }));
+
+      allItems.sort((a, b) => b.id - a.id);
+
+      allItems.forEach(item => {
+        const tr = document.createElement('tr');
+        let typeBadge, name, amountHtml, accountInfo, actionBtn;
+
+        if (item._source === 'expense') {
+          if (item.type === 'income') {
+            typeBadge = `<span class="badge-income">🟢 收入</span>`;
+            name = item.name;
+            amountHtml = `<strong class="income-text">+$${item.price}</strong>`;
+            const acc = assetAccounts.find(a => a.id === item.assetAccountId);
+            accountInfo = acc ? `${acc.icon}${acc.name}` : '-';
+          } else if (item.type === 'expense') {
+            typeBadge = `<span class="badge-expense">🔴 支出</span>`;
+            name = item.name;
+            amountHtml = `<strong class="expense-text">-$${item.price}</strong>`;
+            const acc = assetAccounts.find(a => a.id === item.assetAccountId);
+            accountInfo = acc ? `${acc.icon}${acc.name}` : '-';
+          } else if (item.type === 'transfer') {
+            typeBadge = `<span class="badge-transfer">🔄 轉帳</span>`;
+            name = item.name;
+            amountHtml = `<strong>$${item.price}</strong>`;
+            const fAcc = assetAccounts.find(a => a.id === item.fromAccountId);
+            const tAcc = assetAccounts.find(a => a.id === item.toAccountId);
+            accountInfo = `${fAcc ? fAcc.icon+fAcc.name : '-'} ➔ ${tAcc ? tAcc.icon+tAcc.name : '-'}`;
+          }
+          actionBtn = `<button class="action-btn btn-del-item btn-del-expense">刪除</button>`;
+        } 
+        else if (item._source === 'lend') {
+          typeBadge = `<span style="color: #e67e22; font-weight: bold;">🤝 借出</span>`;
+          name = `借給：${item.person}`;
+          amountHtml = `<strong style="color: #e67e22;">-$${item.amount}</strong>`;
+          const fAcc = assetAccounts.find(a => a.id === item.fromAccountId);
+          accountInfo = fAcc ? `${fAcc.icon}${fAcc.name}` : '-';
+          actionBtn = `<button class="action-btn btn-del-item btn-del-lend">刪除借款</button>`;
+        } 
+        else if (item._source === 'return') {
+          typeBadge = `<span class="badge-income">💰 收回</span>`;
+          name = `收回：${item.person} 的欠款`;
+          amountHtml = `<strong class="income-text">+$${item.amount}</strong>`;
+          const tAcc = assetAccounts.find(a => a.id === item.returnToAccountId);
+          accountInfo = tAcc ? `${tAcc.icon}${tAcc.name}` : '-';
+          actionBtn = `<span style="color: #95a5a6; font-size: 11px;">-</span>`; 
+        }
+
+        tr.innerHTML = `
+          <td>${typeBadge}</td>
+          <td><strong>${escapeHtml(name)}</strong></td>
+          <td>${amountHtml}</td>
+          <td>${accountInfo}</td>
+          <td class="table-note-cell" title="${escapeHtml(item.note || '')}">${item.note ? escapeHtml(item.note) : '-'}</td>
+          <td>${actionBtn}</td>
+        `;
+
+        if (item._source === 'expense') {
+          tr.querySelector('.btn-del-expense').addEventListener('click', () => { deleteSingleExpense(item.id); });
+        } else if (item._source === 'lend') {
+          tr.querySelector('.btn-del-lend').addEventListener('click', () => { deleteLendRecord(item.id); });
+        }
+
+        tbody.appendChild(tr);
+      });
+
+      if (allItems.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #a0aec0; padding: 20px;">所選日期無任何資金動向紀錄</td></tr>`;
+      }
+
+      document.getElementById('daily-inc-val').innerText = `+$${incTotal}`;
+      document.getElementById('daily-exp-val').innerText = `-$${expTotal}`;
+      
+      const netTotal = incTotal - expTotal;
+      const netEl = document.getElementById('daily-net-sum');
+      netEl.innerText = netTotal >= 0 ? `+$${netTotal}` : `-$${Math.abs(netTotal)}`;
+      netEl.style.color = netTotal >= 0 ? '#27ae60' : '#e74c3c';
+    }
+
+    /* ---------------- 💡 今日資金動向 (右側看板) ---------------- */
+    function renderTodayFlow() {
+      const flowList = document.getElementById('today-flow-list');
+      flowList.innerHTML = '';
+
+      let incTotal = 0;
+      let expTotal = 0;
+
+      const todayExpenses = expenses.filter(e => e.date === todayStr);
+      const todayLends = lendRecords.filter(l => l.date === todayStr);
+      const todayReturns = lendRecords.filter(l => l.isReturned && l.returnDate === todayStr);
+
+      todayExpenses.forEach(item => {
+        const card = document.createElement('div');
+        if (item.type === 'income') {
+          incTotal += item.price;
+          card.className = 'today-flow-card type-income';
+          card.innerHTML = `<span>🟢 [收入] ${escapeHtml(item.name)}</span><strong>+$${item.price}</strong>`;
+        } else if (item.type === 'expense') {
+          expTotal += item.price;
+          card.className = 'today-flow-card type-expense';
+          card.innerHTML = `<span>🔴 [支出] ${escapeHtml(item.name)}</span><strong>-$${item.price}</strong>`;
+        } else if (item.type === 'transfer') {
+          card.className = 'today-flow-card type-transfer';
+          card.innerHTML = `<span>🔄 [轉帳] ${escapeHtml(item.name)}</span><strong>$${item.price}</strong>`;
+        }
+        flowList.appendChild(card);
+      });
+
+      todayLends.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'today-flow-card type-lend';
+        card.innerHTML = `<span>🤝 [借出] ${escapeHtml(item.person)}</span><strong>$${item.amount}</strong>`;
+        flowList.appendChild(card);
+      });
+
+      todayReturns.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'today-flow-card type-return';
+        card.innerHTML = `<span>💰 [收回借款] ${escapeHtml(item.person)}</span><strong>+$${item.amount}</strong>`;
+        flowList.appendChild(card);
+      });
+
+      if (flowList.children.length === 0) {
+        flowList.innerHTML = `<div style="text-align: center; color: #a0aec0; font-size: 13px; padding: 10px;">今日尚無任何資金動向紀錄</div>`;
+      }
+
+      document.getElementById('today-inc-val').innerText = `+$${incTotal}`;
+      document.getElementById('today-exp-val').innerText = `-$${expTotal}`;
+      document.getElementById('today-net-val').innerText = `$${incTotal - expTotal}`;
+    }
+
+    /* ---------------- 🏦 總資產管理 ---------------- */
+    function addAssetAccount() {
+      const icon = document.getElementById('asset-icon-input').value;
+      const name = document.getElementById('asset-name-input').value.trim();
+      const amount = Number(document.getElementById('asset-amount-input').value);
+
+      if (!name) {
+        alert('請輸入帳戶名稱！');
+        return;
+      }
+
+      assetAccounts.push({
+        id: Date.now(),
+        icon,
+        name,
+        amount
+      });
+
+      renderAssets();
+      saveToCloud();
+
+      document.getElementById('asset-name-input').value = '';
+      document.getElementById('asset-amount-input').value = '';
+    }
+
+    function editAssetAccount(id) {
+      const acc = assetAccounts.find(a => a.id === id);
+      if (!acc) return;
+
+      const newName = prompt('請輸入新的帳戶名稱：', acc.name);
+      if (newName === null) return;
+
+      const newAmountStr = prompt('請輸入調整後的當前餘額：', acc.amount);
+      if (newAmountStr === null) return;
+
+      acc.name = newName.trim() || acc.name;
+      acc.amount = Number(newAmountStr) || 0;
+
+      renderAssets();
+      renderExpenses();
+      renderLendRecords();
+      renderDailyView();
+      saveToCloud();
+    }
+
+    function deleteAssetAccount(id) {
+      if (confirm('確定要刪除這個資產帳戶嗎？')) {
+        assetAccounts = assetAccounts.filter(a => a.id !== id);
+        renderAssets();
+        renderExpenses();
+        renderLendRecords();
+        renderDailyView();
+        saveToCloud();
+      }
+    }
+
+    function renderAssets() {
+      const grid = document.getElementById('asset-grid');
+      const itemSelect = document.getElementById('item-asset-account');
+      const fromSelect = document.getElementById('item-from-account');
+      const toSelect = document.getElementById('item-to-account');
+      const lendFromSelect = document.getElementById('lend-from-asset-account');
+      const returnModalSelect = document.getElementById('return-modal-asset-account');
+      const editFromSelect = document.getElementById('edit-lend-from-account');
+      const editToSelect = document.getElementById('edit-return-to-account');
+
+      grid.innerHTML = '';
+
+      let totalWorth = 0;
+
+      assetAccounts.forEach(acc => {
+        totalWorth += acc.amount;
+
+        const card = document.createElement('div');
+        card.className = 'asset-card-item';
+
+        card.innerHTML = `
+          <div>
+            <div class="asset-name"><span>${acc.icon}</span> <span>${escapeHtml(acc.name)}</span></div>
+            <div class="asset-val ${acc.amount < 0 ? 'negative' : ''}">$${acc.amount}</div>
+          </div>
+          <div class="asset-actions">
+            <button class="edit-asset-btn edit-acc-btn" title="修改餘額/名稱">✏️</button>
+            <button class="edit-asset-btn del-acc-btn" title="刪除帳戶">🗑️</button>
+          </div>
+        `;
+
+        card.querySelector('.edit-acc-btn').addEventListener('click', () => editAssetAccount(acc.id));
+        card.querySelector('.del-acc-btn').addEventListener('click', () => deleteAssetAccount(acc.id));
+
+        grid.appendChild(card);
+      });
+
+      document.getElementById('total-asset-val').innerText = totalWorth;
+
+      const optionsHtml = assetAccounts.map(a => `<option value="${a.id}">${a.icon} ${escapeHtml(a.name)} ($${a.amount})</option>`).join('');
+
+      itemSelect.innerHTML = '<option value="">不連動資產帳戶</option>' + optionsHtml;
+      fromSelect.innerHTML = '<option value="">請選擇轉出帳戶</option>' + optionsHtml;
+      toSelect.innerHTML = '<option value="">請選擇轉入帳戶</option>' + optionsHtml;
+      lendFromSelect.innerHTML = '<option value="">選擇借出帳戶 (不連動)</option>' + optionsHtml;
+      returnModalSelect.innerHTML = '<option value="">選擇存入帳戶 (不連動)</option>' + optionsHtml;
+      editFromSelect.innerHTML = '<option value="">選擇借出帳戶 (不連動)</option>' + optionsHtml;
+      editToSelect.innerHTML = '<option value="">選擇存入帳戶 (不連動)</option>' + optionsHtml;
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+  </script>
+</body>
+</html>
