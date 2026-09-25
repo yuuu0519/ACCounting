@@ -425,7 +425,14 @@
       align-items: center;
       gap: 8px;
       font-size: 13px;
+      cursor: pointer;
+      padding: 4px 6px;
+      margin: 0 -6px;
+      border-radius: 6px;
+      transition: background 0.15s;
     }
+    .pie-legend-item:hover { background: #f8fafc; }
+    .pie-legend-item.selected { background: #eef2f7; }
     .pie-legend-swatch {
       width: 12px;
       height: 12px;
@@ -434,6 +441,16 @@
     }
     .pie-legend-label { flex: 1; color: #4a5568; }
     .pie-legend-value { font-weight: bold; color: #2c3e50; white-space: nowrap; }
+
+    /* 🌟 分類明細（點擊圖例展開）樣式 */
+    .category-detail-section {
+      margin-top: 15px;
+      padding-top: 15px;
+      border-top: 1px dashed #e2e8f0;
+    }
+    .category-detail-section ul {
+      max-height: 260px;
+    }
   </style>
 </head>
 <body>
@@ -760,6 +777,14 @@
           <div class="pie-chart-svg-wrap" id="pie-chart-svg-wrap"></div>
           <div class="pie-legend" id="pie-legend"></div>
         </div>
+
+        <div class="category-detail-section" id="category-detail-section" style="display: none;">
+          <div class="card-header-flex" style="margin-bottom: 4px;">
+            <h3 class="section-title" id="category-detail-title" style="margin-bottom: 0; font-size: 15px;">🏷️ 分類明細</h3>
+            <button class="btn-link" id="close-category-detail-btn">✕ 關閉</button>
+          </div>
+          <ul id="category-detail-list"></ul>
+        </div>
       </div>
 
       <table class="lend-table" style="margin-top: 15px;">
@@ -914,7 +939,10 @@
   <!-- 引進 Firebase SDK 並整合所有 JavaScript -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+    import {
+      getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
+      onSnapshot, writeBatch, increment
+    } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyDEJPftp1bF2WM6DcoOd0tFO3YA-wcBtiQ",
@@ -928,20 +956,28 @@
 
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
-    const docRef = doc(db, "accounting", "my_data");
 
-    // 全域狀態
+    // 🌟 資料庫架構說明：
+    // 過去所有資料都塞在同一份文件（accounting/my_data）的幾個大陣列欄位裡，
+    // 每次存檔都是整份陣列覆蓋過去，導致不同分頁/裝置互相蓋掉彼此的資料。
+    // 現在改成每一筆紀錄都是子集合底下各自獨立的文件，新增/刪除/編輯都只會動到
+    // 那一筆自己的文件，不會影響其他任何紀錄。bookDocRef 本身只保留書名。
+    const bookDocRef = doc(db, "accounting", "my_data");
+    const expensesCol = collection(bookDocRef, "expenses");
+    const lendCol = collection(bookDocRef, "lendRecords");
+    const assetsCol = collection(bookDocRef, "assetAccounts");
+    const categoriesCol = collection(bookDocRef, "categories");
+
+    // 全域狀態（實際內容由下方的即時監聽器從雲端子集合同步填入）
     let expenses = [];
     let lendRecords = [];
-    let assetAccounts = [
+
+    // 預設資產帳戶／分類，僅在「全新使用者、雲端子集合完全是空的」時，會被寫入雲端作為初始資料
+    const defaultAssetAccounts = [
       { id: 1, icon: '💵', name: '隨身現金', amount: 0 },
       { id: 2, icon: '🏦', name: '銀行存款', amount: 1020 }
     ];
-    let bookTitle = '記帳';
-    let isRemoteUpdate = false;
-
-    // 🌟 分類清單（可自訂新增/刪除，預設提供幾個常用分類）
-    let categories = [
+    const defaultCategories = [
       { id: 1, name: '餐飲' },
       { id: 2, name: '交通' },
       { id: 3, name: '娛樂' },
@@ -950,6 +986,9 @@
       { id: 6, name: '薪資' },
       { id: 7, name: '其他' }
     ];
+    let assetAccounts = [...defaultAssetAccounts];
+    let categories = [...defaultCategories];
+    let bookTitle = '記帳';
 
     const todayStr = new Date().toISOString().split('T')[0];
     let viewingDate = todayStr;
@@ -978,6 +1017,9 @@
 
     // 🌟 月度圓餅圖檢視模式：'expense' 支出 / 'income' 收入
     let pieViewMode = 'expense';
+
+    // 🌟 目前點選展開明細的分類（null 代表沒有點選任何分類）
+    let selectedPieCategoryKey = null;
 
     // 🔀 分頁切換邏輯
     const tabMain = document.getElementById('tab-main');
@@ -1153,6 +1195,12 @@
       renderPieChart();
     }
 
+    // 🌟 關閉分類明細區塊
+    document.getElementById('close-category-detail-btn').addEventListener('click', () => {
+      selectedPieCategoryKey = null;
+      renderPieChart();
+    });
+
     document.getElementById('item-type').addEventListener('change', (e) => {
       const type = e.target.value;
       const normalAccountSelect = document.getElementById('item-asset-account');
@@ -1219,50 +1267,10 @@
       renderCalendar();
     }
 
-    onSnapshot(docRef, (docSnap) => {
-      const statusEl = document.getElementById('sync-status');
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        isRemoteUpdate = true;
-        
-        if (data.expenses) expenses = data.expenses;
-        if (data.lendRecords) lendRecords = data.lendRecords;
-        if (data.assetAccounts) assetAccounts = data.assetAccounts;
-        if (data.categories) categories = data.categories;
-        if (data.bookTitle) {
-          bookTitle = data.bookTitle;
-          document.getElementById('book-title').innerText = data.bookTitle;
-          document.title = data.bookTitle;
-        }
+    /* ---------------- ☁️ 資料庫初始化：一次性搬遷 + 建立子集合監聽 ---------------- */
+    const statusEl = document.getElementById('sync-status');
 
-        updateMonthOptions();
-        renderAssets();
-        renderCategories();
-        renderExpenses();
-        renderLendRecords();
-        renderCalendar();
-        renderTodayFlow();
-        renderDailyView();
-        
-        isRemoteUpdate = false;
-      } else {
-        updateMonthOptions();
-        renderAssets();
-        renderCategories();
-        renderExpenses();
-        renderLendRecords();
-        renderCalendar();
-        renderTodayFlow();
-        renderDailyView();
-      }
-      statusEl.className = "sync-status online";
-      statusEl.innerText = "🟢 雲端連線正常 (即時同步中)";
-    }, (error) => {
-      console.error("Firebase 連線失敗:", error);
-      const statusEl = document.getElementById('sync-status');
-      statusEl.className = "sync-status offline";
-      statusEl.innerText = "🔴 雲端連線失敗 (請確認安全規則設定)";
-      
+    function renderAll() {
       updateMonthOptions();
       renderAssets();
       renderCategories();
@@ -1270,23 +1278,119 @@
       renderLendRecords();
       renderCalendar();
       renderTodayFlow();
-      renderDailyView();
-    });
+      renderDailyView(); // 內部也會一併呼叫 renderMonthlyView()
+    }
 
-    async function saveToCloud() {
-      if (isRemoteUpdate) return;
-      try {
-        await setDoc(docRef, {
-          expenses: expenses,
-          lendRecords: lendRecords,
-          assetAccounts: assetAccounts,
-          categories: categories,
-          bookTitle: bookTitle
-        }, { merge: true });
-      } catch (e) {
-        console.error("同步至雲端失敗:", e);
+    function setSyncOnline() {
+      statusEl.className = "sync-status online";
+      statusEl.innerText = "🟢 雲端連線正常 (即時同步中)";
+    }
+
+    function setSyncOffline(error) {
+      console.error("Firebase 連線失敗:", error);
+      statusEl.className = "sync-status offline";
+      statusEl.innerText = "🔴 雲端連線失敗 (請確認安全規則設定)";
+    }
+
+    // 依 400 筆一批分批寫入，避開 Firestore 單一批次最多 500 筆寫入的限制
+    async function batchWriteAll(colRef, items) {
+      for (let i = 0; i < items.length; i += 400) {
+        const chunk = items.slice(i, i + 400);
+        const batch = writeBatch(db);
+        chunk.forEach(item => {
+          batch.set(doc(colRef, String(item.id)), item);
+        });
+        await batch.commit();
       }
     }
+
+    // 🌟 一次性搬遷：把舊版「整份文件塞大陣列」的資料，原封不動複製成子集合裡各自獨立的文件。
+    // 絕對不會刪除舊的陣列欄位——搬遷後舊資料仍完整保留在 accounting/my_data 文件裡當備份。
+    async function migrateToSubcollectionsIfNeeded() {
+      const bookSnap = await getDoc(bookDocRef);
+      if (!bookSnap.exists()) return;
+
+      const data = bookSnap.data();
+      if (data.migratedToSubcollections) return; // 已經搬遷過，不重複執行
+
+      if (data.bookTitle) bookTitle = data.bookTitle;
+
+      await batchWriteAll(expensesCol, data.expenses || []);
+      await batchWriteAll(lendCol, data.lendRecords || []);
+      await batchWriteAll(assetsCol, data.assetAccounts || []);
+      await batchWriteAll(categoriesCol, data.categories || []);
+
+      // 全部搬遷成功後才標記完成；舊的陣列欄位刻意保留、不刪除，作為救援備份
+      await setDoc(bookDocRef, { migratedToSubcollections: true }, { merge: true });
+    }
+
+    // 全新使用者（子集合完全是空的）才會寫入預設資產帳戶／分類
+    async function seedDefaultsIfEmpty() {
+      const assetsSnap = await getDocs(assetsCol);
+      if (assetsSnap.empty) {
+        const batch = writeBatch(db);
+        defaultAssetAccounts.forEach(acc => batch.set(doc(assetsCol, String(acc.id)), acc));
+        await batch.commit();
+      }
+
+      const catSnap = await getDocs(categoriesCol);
+      if (catSnap.empty) {
+        const batch = writeBatch(db);
+        defaultCategories.forEach(cat => batch.set(doc(categoriesCol, String(cat.id)), cat));
+        await batch.commit();
+      }
+    }
+
+    function attachListeners() {
+      onSnapshot(expensesCol, snap => {
+        expenses = snap.docs.map(d => d.data());
+        renderAll();
+        setSyncOnline();
+      }, setSyncOffline);
+
+      onSnapshot(lendCol, snap => {
+        lendRecords = snap.docs.map(d => d.data());
+        renderAll();
+        setSyncOnline();
+      }, setSyncOffline);
+
+      onSnapshot(assetsCol, snap => {
+        assetAccounts = snap.docs.map(d => d.data());
+        renderAll();
+        setSyncOnline();
+      }, setSyncOffline);
+
+      onSnapshot(categoriesCol, snap => {
+        categories = snap.docs.map(d => d.data());
+        renderAll();
+        setSyncOnline();
+      }, setSyncOffline);
+
+      onSnapshot(bookDocRef, snap => {
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data.bookTitle) {
+            bookTitle = data.bookTitle;
+            document.getElementById('book-title').innerText = data.bookTitle;
+            document.title = data.bookTitle;
+          }
+        }
+        setSyncOnline();
+      }, setSyncOffline);
+    }
+
+    (async function initApp() {
+      try {
+        await migrateToSubcollectionsIfNeeded();
+        await seedDefaultsIfEmpty();
+      } catch (e) {
+        // 搬遷/初始化失敗也不影響後續監聽器掛上，畫面會維持預設值直到重新整理成功為止
+        console.error("資料庫初始化/搬遷失敗:", e);
+        statusEl.className = "sync-status offline";
+        statusEl.innerText = "🔴 初始化失敗，請重新整理頁面再試一次";
+      }
+      attachListeners();
+    })();
 
     function editBookTitle() {
       const currentTitle = document.getElementById('book-title').innerText;
@@ -1296,24 +1400,30 @@
         const trimmedTitle = newTitle.trim();
         document.getElementById('book-title').innerText = trimmedTitle;
         document.title = trimmedTitle;
-        bookTitle = trimmedTitle;
-        saveToCloud();
+        setDoc(bookDocRef, { bookTitle: trimmedTitle }, { merge: true }).catch(e => {
+          console.error(e);
+          alert('更新記帳本名稱失敗，請檢查網路連線！');
+        });
       }
     }
 
-    function clearAllData() {
-      if (confirm('⚠️ 確定要清空所有紀錄嗎？此動作無法復原！')) {
-        expenses = [];
-        updateMonthOptions();
-        renderExpenses();
-        renderTodayFlow();
-        renderDailyView();
-        saveToCloud();
+    async function clearAllData() {
+      if (!confirm('⚠️ 確定要清空所有紀錄嗎？此動作無法復原！')) return;
+      try {
+        const snap = await getDocs(expensesCol);
+        for (let i = 0; i < snap.docs.length; i += 400) {
+          const batch = writeBatch(db);
+          snap.docs.slice(i, i + 400).forEach(d => batch.delete(d.ref));
+          await batch.commit();
+        }
+      } catch (e) {
+        console.error(e);
+        alert('清空紀錄失敗，請檢查網路連線！');
       }
     }
 
     /* ---------------- 記帳邏輯 ---------------- */
-    function addExpense() {
+    async function addExpense() {
       const date = document.getElementById('item-date').value;
       const type = document.getElementById('item-type').value;
       const assetAccountId = document.getElementById('item-asset-account').value;
@@ -1329,6 +1439,9 @@
         return;
       }
 
+      const newId = Date.now();
+      const batch = writeBatch(db);
+
       if (type === 'transfer') {
         if (!fromAccountId || !toAccountId) {
           alert('請選擇轉出與轉入帳戶！');
@@ -1339,14 +1452,8 @@
           return;
         }
 
-        const fromAsset = assetAccounts.find(a => a.id === Number(fromAccountId));
-        const toAsset = assetAccounts.find(a => a.id === Number(toAccountId));
-
-        if (fromAsset) fromAsset.amount -= price;
-        if (toAsset) toAsset.amount += price;
-
-        expenses.push({
-          id: Date.now(),
+        batch.set(doc(expensesCol, String(newId)), {
+          id: newId,
           date,
           type,
           fromAccountId: Number(fromAccountId),
@@ -1355,103 +1462,72 @@
           price,
           note
         });
+        batch.update(doc(assetsCol, fromAccountId), { amount: increment(-price) });
+        batch.update(doc(assetsCol, toAccountId), { amount: increment(price) });
 
       } else {
-        if (assetAccountId) {
-          const targetAsset = assetAccounts.find(a => a.id === Number(assetAccountId));
-          if (targetAsset) {
-            if (type === 'income') {
-              targetAsset.amount += price;
-            } else {
-              targetAsset.amount -= price;
-            }
-          }
-        }
-
-        expenses.push({ 
-          id: Date.now(),
-          date, 
-          type, 
+        batch.set(doc(expensesCol, String(newId)), {
+          id: newId,
+          date,
+          type,
           assetAccountId: assetAccountId ? Number(assetAccountId) : null,
           categoryId: categoryId ? Number(categoryId) : null,
-          name, 
-          price, 
-          note 
+          name,
+          price,
+          note
         });
+        if (assetAccountId) {
+          const delta = type === 'income' ? price : -price;
+          batch.update(doc(assetsCol, assetAccountId), { amount: increment(delta) });
+        }
       }
 
-      renderAssets();
-      updateMonthOptions();
-      renderExpenses();
-      renderTodayFlow();
-      renderDailyView();
-      saveToCloud();
-
-      document.getElementById('item-name').value = '';
-      document.getElementById('item-price').value = '';
-      document.getElementById('item-note').value = '';
+      try {
+        await batch.commit();
+        document.getElementById('item-name').value = '';
+        document.getElementById('item-price').value = '';
+        document.getElementById('item-note').value = '';
+      } catch (e) {
+        console.error(e);
+        alert('新增紀錄失敗，請檢查網路連線！');
+      }
     }
 
-    // 🌟 還原一筆收支/轉帳紀錄對資產帳戶造成的影響（供刪除、編輯共用）
-    function revertExpenseAssetEffect(item) {
+    // 🌟 計算一筆收支/轉帳紀錄對資產帳戶造成的增減效果，回傳 {帳戶id: 增減金額}
+    function getExpenseAssetDelta(item, sign) {
+      // sign = 1 表示套用這筆紀錄的效果，sign = -1 表示反向沖銷（用於刪除／編輯前）
+      const deltas = {};
+      function add(accId, amt) {
+        if (!accId) return;
+        deltas[accId] = (deltas[accId] || 0) + amt;
+      }
       if (item.type === 'transfer') {
-        if (item.fromAccountId) {
-          const fromAsset = assetAccounts.find(a => a.id === item.fromAccountId);
-          if (fromAsset) fromAsset.amount += item.price;
-        }
-        if (item.toAccountId) {
-          const toAsset = assetAccounts.find(a => a.id === item.toAccountId);
-          if (toAsset) toAsset.amount -= item.price;
-        }
+        add(item.fromAccountId, -item.price * sign);
+        add(item.toAccountId, item.price * sign);
       } else if (item.assetAccountId) {
-        const targetAsset = assetAccounts.find(a => a.id === item.assetAccountId);
-        if (targetAsset) {
-          if (item.type === 'income') {
-            targetAsset.amount -= item.price;
-          } else {
-            targetAsset.amount += item.price;
-          }
-        }
+        const amt = item.type === 'income' ? item.price : -item.price;
+        add(item.assetAccountId, amt * sign);
       }
+      return deltas;
     }
 
-    // 🌟 套用一筆收支/轉帳紀錄對資產帳戶造成的影響（供新增、編輯共用）
-    function applyExpenseAssetEffect(item) {
-      if (item.type === 'transfer') {
-        if (item.fromAccountId) {
-          const fromAsset = assetAccounts.find(a => a.id === item.fromAccountId);
-          if (fromAsset) fromAsset.amount -= item.price;
-        }
-        if (item.toAccountId) {
-          const toAsset = assetAccounts.find(a => a.id === item.toAccountId);
-          if (toAsset) toAsset.amount += item.price;
-        }
-      } else if (item.assetAccountId) {
-        const targetAsset = assetAccounts.find(a => a.id === item.assetAccountId);
-        if (targetAsset) {
-          if (item.type === 'income') {
-            targetAsset.amount += item.price;
-          } else {
-            targetAsset.amount -= item.price;
-          }
-        }
+    async function deleteSingleExpense(id) {
+      const item = expenses.find(e => e.id === id);
+      if (!item) return;
+
+      const deltas = getExpenseAssetDelta(item, -1); // 反向沖銷
+      const batch = writeBatch(db);
+      batch.delete(doc(expensesCol, String(id)));
+      Object.keys(deltas).forEach(accId => {
+        if (deltas[accId] !== 0) batch.update(doc(assetsCol, accId), { amount: increment(deltas[accId]) });
+      });
+
+      try {
+        await batch.commit();
+      } catch (e) {
+        console.error(e);
+        alert('刪除失敗，請檢查網路連線！');
       }
-    }
-
-    function deleteSingleExpense(id) {
-      const index = expenses.findIndex(e => e.id === id);
-      if (index === -1) return;
-
-      const item = expenses[index];
-      revertExpenseAssetEffect(item);
-
-      expenses.splice(index, 1);
-      renderAssets();
-      updateMonthOptions();
-      renderExpenses();
-      renderTodayFlow();
-      renderDailyView();
-      saveToCloud();
     }
 
     // 🌟 開啟編輯收支/轉帳紀錄 Modal
@@ -1492,7 +1568,7 @@
       editingExpenseId = null;
     }
 
-    function confirmEditExpense() {
+    async function confirmEditExpense() {
       if (!editingExpenseId) return;
       const item = expenses.find(e => e.id === editingExpenseId);
       if (!item) return;
@@ -1508,54 +1584,57 @@
         return;
       }
 
-      // 先還原舊紀錄對資產的影響
-      revertExpenseAssetEffect(item);
+      let newData = { id: item.id, date: newDate, type: newType, name: newName, price: newPrice, note: newNote };
+      let newFromId = null, newToId = null;
 
       if (newType === 'transfer') {
-        const newFromId = document.getElementById('edit-item-from-account').value;
-        const newToId = document.getElementById('edit-item-to-account').value;
+        newFromId = document.getElementById('edit-item-from-account').value;
+        newToId = document.getElementById('edit-item-to-account').value;
 
         if (!newFromId || !newToId) {
           alert('請選擇轉出與轉入帳戶！');
-          applyExpenseAssetEffect(item); // 還原失敗的操作，恢復原本效果
           return;
         }
         if (newFromId === newToId) {
           alert('轉出與轉入帳戶不能相同！');
-          applyExpenseAssetEffect(item);
           return;
         }
 
-        item.type = 'transfer';
-        item.fromAccountId = Number(newFromId);
-        item.toAccountId = Number(newToId);
-        item.assetAccountId = undefined;
-        item.categoryId = undefined;
+        newData.fromAccountId = Number(newFromId);
+        newData.toAccountId = Number(newToId);
       } else {
         const newAssetId = document.getElementById('edit-item-asset-account').value;
         const newCategoryId = document.getElementById('edit-item-category').value;
-        item.type = newType;
-        item.assetAccountId = newAssetId ? Number(newAssetId) : null;
-        item.categoryId = newCategoryId ? Number(newCategoryId) : null;
-        item.fromAccountId = undefined;
-        item.toAccountId = undefined;
+        newData.assetAccountId = newAssetId ? Number(newAssetId) : null;
+        newData.categoryId = newCategoryId ? Number(newCategoryId) : null;
       }
 
-      item.date = newDate;
-      item.name = newName;
-      item.price = newPrice;
-      item.note = newNote;
+      // 合併「反向沖銷舊效果」與「套用新效果」的淨增減量，同一個帳戶只寫入一次
+      const oldDeltas = getExpenseAssetDelta(item, -1);
+      const newDeltas = getExpenseAssetDelta(
+        newType === 'transfer'
+          ? { type: 'transfer', fromAccountId: Number(newFromId), toAccountId: Number(newToId), price: newPrice }
+          : { type: newType, assetAccountId: newData.assetAccountId, price: newPrice },
+        1
+      );
+      const mergedDeltas = { ...oldDeltas };
+      Object.keys(newDeltas).forEach(accId => {
+        mergedDeltas[accId] = (mergedDeltas[accId] || 0) + newDeltas[accId];
+      });
 
-      // 套用新紀錄的資產效果
-      applyExpenseAssetEffect(item);
+      const batch = writeBatch(db);
+      batch.set(doc(expensesCol, String(item.id)), newData);
+      Object.keys(mergedDeltas).forEach(accId => {
+        if (mergedDeltas[accId] !== 0) batch.update(doc(assetsCol, accId), { amount: increment(mergedDeltas[accId]) });
+      });
 
-      closeEditExpenseModal();
-      renderAssets();
-      updateMonthOptions();
-      renderExpenses();
-      renderTodayFlow();
-      renderDailyView();
-      saveToCloud();
+      try {
+        await batch.commit();
+        closeEditExpenseModal();
+      } catch (e) {
+        console.error(e);
+        alert('儲存修改失敗，請檢查網路連線！');
+      }
     }
 
     function renderExpenses() {
@@ -1704,7 +1783,7 @@
       return `<span class="item-category-tag uncategorized">⚪ 未分類</span>`;
     }
 
-    function addCategory() {
+    async function addCategory() {
       const input = document.getElementById('new-category-input');
       const name = input.value.trim();
 
@@ -1717,26 +1796,35 @@
         return;
       }
 
-      categories.push({ id: Date.now(), name });
-      renderCategories();
-      saveToCloud();
-      input.value = '';
+      const newId = Date.now();
+      try {
+        await setDoc(doc(categoriesCol, String(newId)), { id: newId, name });
+        input.value = '';
+      } catch (e) {
+        console.error(e);
+        alert('新增分類失敗，請檢查網路連線！');
+      }
     }
 
-    function deleteCategory(id) {
+    async function deleteCategory(id) {
       if (!confirm('確定要刪除這個分類嗎？使用這個分類的紀錄會自動變回「未分類」。')) return;
 
-      categories = categories.filter(c => c.id !== id);
+      try {
+        // 把原本使用這個分類的紀錄各自獨立改回未分類，不會動到其他紀錄
+        const affected = expenses.filter(item => item.categoryId === id);
+        const batch = writeBatch(db);
+        affected.forEach(item => {
+          batch.update(doc(expensesCol, String(item.id)), { categoryId: null });
+        });
+        batch.delete(doc(categoriesCol, String(id)));
+        await batch.commit();
 
-      // 把原本使用這個分類的紀錄改回未分類，而不是留著失效的參照
-      expenses.forEach(item => {
-        if (item.categoryId === id) item.categoryId = null;
-      });
-
-      renderCategories();
-      renderExpenses();
-      renderDailyView();
-      saveToCloud();
+        // 若目前圓餅圖明細正選著這個被刪除的分類，收合明細避免顯示失效資料
+        if (selectedPieCategoryKey === String(id)) selectedPieCategoryKey = null;
+      } catch (e) {
+        console.error(e);
+        alert('刪除分類失敗，請檢查網路連線！');
+      }
     }
 
     function renderCategories() {
@@ -1765,7 +1853,7 @@
     }
 
     /* ---------------- 🤝 借還款邏輯 ---------------- */
-    function addLendRecord() {
+    async function addLendRecord() {
       const date = document.getElementById('lend-date').value;
       const fromAccountId = document.getElementById('lend-from-asset-account').value;
       const person = document.getElementById('lend-person').value.trim();
@@ -1777,13 +1865,10 @@
         return;
       }
 
-      if (fromAccountId) {
-        const targetAsset = assetAccounts.find(a => a.id === Number(fromAccountId));
-        if (targetAsset) targetAsset.amount -= amount;
-      }
-
-      lendRecords.push({
-        id: Date.now(),
+      const newId = Date.now();
+      const batch = writeBatch(db);
+      batch.set(doc(lendCol, String(newId)), {
+        id: newId,
         date,
         person,
         amount,
@@ -1793,16 +1878,19 @@
         returnDate: null,
         returnToAccountId: null
       });
+      if (fromAccountId) {
+        batch.update(doc(assetsCol, fromAccountId), { amount: increment(-amount) });
+      }
 
-      renderAssets();
-      renderLendRecords();
-      renderTodayFlow();
-      renderDailyView();
-      saveToCloud();
-
-      document.getElementById('lend-person').value = '';
-      document.getElementById('lend-amount').value = '';
-      document.getElementById('lend-note').value = '';
+      try {
+        await batch.commit();
+        document.getElementById('lend-person').value = '';
+        document.getElementById('lend-amount').value = '';
+        document.getElementById('lend-note').value = '';
+      } catch (e) {
+        console.error(e);
+        alert('新增借款紀錄失敗，請檢查網路連線！');
+      }
     }
 
     function openReturnModal(ids) {
@@ -1828,7 +1916,7 @@
       pendingReturnIds = [];
     }
 
-    function confirmReturn() {
+    async function confirmReturn() {
       if (pendingReturnIds.length === 0) return;
 
       const rDate = document.getElementById('return-modal-date').value;
@@ -1840,28 +1928,31 @@
       }
 
       let totalAmountReturned = 0;
+      const batch = writeBatch(db);
 
       pendingReturnIds.forEach(id => {
         const record = lendRecords.find(r => r.id === id);
         if (record && !record.isReturned) {
-          record.isReturned = true;
-          record.returnDate = rDate;
-          record.returnToAccountId = rToAccountId ? Number(rToAccountId) : null;
+          batch.update(doc(lendCol, String(id)), {
+            isReturned: true,
+            returnDate: rDate,
+            returnToAccountId: rToAccountId ? Number(rToAccountId) : null
+          });
           totalAmountReturned += record.amount;
         }
       });
 
       if (rToAccountId && totalAmountReturned > 0) {
-        const targetAsset = assetAccounts.find(a => a.id === Number(rToAccountId));
-        if (targetAsset) targetAsset.amount += totalAmountReturned;
+        batch.update(doc(assetsCol, rToAccountId), { amount: increment(totalAmountReturned) });
       }
 
-      closeReturnModal();
-      renderAssets();
-      renderLendRecords();
-      renderTodayFlow();
-      renderDailyView();
-      saveToCloud();
+      try {
+        await batch.commit();
+        closeReturnModal();
+      } catch (e) {
+        console.error(e);
+        alert('確認還款失敗，請檢查網路連線！');
+      }
     }
 
     function openEditModal(id) {
@@ -1897,7 +1988,7 @@
       editingLendId = null;
     }
 
-    function confirmEditLend() {
+    async function confirmEditLend() {
       if (!editingLendId) return;
 
       const item = lendRecords.find(r => r.id === editingLendId);
@@ -1915,79 +2006,86 @@
         return;
       }
 
-      if (item.fromAccountId) {
-        const oldFromAsset = assetAccounts.find(a => a.id === item.fromAccountId);
-        if (oldFromAsset) oldFromAsset.amount += item.amount;
-      }
-      if (item.isReturned && item.returnToAccountId) {
-        const oldToAsset = assetAccounts.find(a => a.id === item.returnToAccountId);
-        if (oldToAsset) oldToAsset.amount -= item.amount;
-      }
+      let newData = {
+        id: item.id,
+        person: newPerson,
+        amount: newAmount,
+        note: newNote,
+        date: newDate,
+        fromAccountId: newFromAccount ? Number(newFromAccount) : null,
+        isReturned: false,
+        returnDate: null,
+        returnToAccountId: null
+      };
 
-      item.person = newPerson;
-      item.amount = newAmount;
-      item.note = newNote;
-      item.date = newDate;
-      item.fromAccountId = newFromAccount ? Number(newFromAccount) : null;
-
+      let retToAcc = '';
       if (newStatus === 'paid') {
         const retDate = document.getElementById('edit-return-date').value;
-        const retToAcc = document.getElementById('edit-return-to-account').value;
+        retToAcc = document.getElementById('edit-return-to-account').value;
 
         if (!retDate) {
           alert('請輸入還款日期！');
           return;
         }
 
-        item.isReturned = true;
-        item.returnDate = retDate;
-        item.returnToAccountId = retToAcc ? Number(retToAcc) : null;
-
-        if (retToAcc) {
-          const newToAsset = assetAccounts.find(a => a.id === Number(retToAcc));
-          if (newToAsset) newToAsset.amount += newAmount;
-        }
-      } else {
-        item.isReturned = false;
-        item.returnDate = null;
-        item.returnToAccountId = null;
+        newData.isReturned = true;
+        newData.returnDate = retDate;
+        newData.returnToAccountId = retToAcc ? Number(retToAcc) : null;
       }
 
-      if (item.fromAccountId) {
-        const newFromAsset = assetAccounts.find(a => a.id === item.fromAccountId);
-        if (newFromAsset) newFromAsset.amount -= newAmount;
+      // 合併「反向沖銷舊效果」與「套用新效果」的淨增減量，同一個帳戶只寫入一次
+      const deltas = {};
+      function addDelta(accId, amt) {
+        if (!accId) return;
+        deltas[accId] = (deltas[accId] || 0) + amt;
       }
+      // 反向沖銷舊效果
+      if (item.fromAccountId) addDelta(item.fromAccountId, item.amount);
+      if (item.isReturned && item.returnToAccountId) addDelta(item.returnToAccountId, -item.amount);
+      // 套用新效果
+      if (newData.fromAccountId) addDelta(newData.fromAccountId, -newAmount);
+      if (newData.isReturned && newData.returnToAccountId) addDelta(newData.returnToAccountId, newAmount);
 
-      closeEditModal();
-      renderAssets();
-      renderLendRecords();
-      renderTodayFlow();
-      renderDailyView();
-      saveToCloud();
+      const batch = writeBatch(db);
+      batch.set(doc(lendCol, String(item.id)), newData);
+      Object.keys(deltas).forEach(accId => {
+        if (deltas[accId] !== 0) batch.update(doc(assetsCol, accId), { amount: increment(deltas[accId]) });
+      });
+
+      try {
+        await batch.commit();
+        closeEditModal();
+      } catch (e) {
+        console.error(e);
+        alert('儲存修改失敗，請檢查網路連線！');
+      }
     }
 
-    function deleteLendRecord(id) {
-      if (confirm('確定要刪除這筆借款紀錄嗎？')) {
-        const index = lendRecords.findIndex(r => r.id === id);
-        if (index === -1) return;
+    async function deleteLendRecord(id) {
+      if (!confirm('確定要刪除這筆借款紀錄嗎？')) return;
 
-        const item = lendRecords[index];
+      const item = lendRecords.find(r => r.id === id);
+      if (!item) return;
 
-        if (item.fromAccountId) {
-          const fromAsset = assetAccounts.find(a => a.id === item.fromAccountId);
-          if (fromAsset) fromAsset.amount += item.amount;
-        }
-        if (item.isReturned && item.returnToAccountId) {
-          const toAsset = assetAccounts.find(a => a.id === item.returnToAccountId);
-          if (toAsset) toAsset.amount -= item.amount;
-        }
+      const deltas = {};
+      function addDelta(accId, amt) {
+        if (!accId) return;
+        deltas[accId] = (deltas[accId] || 0) + amt;
+      }
+      if (item.fromAccountId) addDelta(item.fromAccountId, item.amount);
+      if (item.isReturned && item.returnToAccountId) addDelta(item.returnToAccountId, -item.amount);
 
-        lendRecords.splice(index, 1);
-        renderAssets();
-        renderLendRecords();
-        renderTodayFlow();
-        renderDailyView();
-        saveToCloud();
+      const batch = writeBatch(db);
+      batch.delete(doc(lendCol, String(id)));
+      Object.keys(deltas).forEach(accId => {
+        if (deltas[accId] !== 0) batch.update(doc(assetsCol, accId), { amount: increment(deltas[accId]) });
+      });
+
+      try {
+        await batch.commit();
+      } catch (e) {
+        console.error(e);
+        alert('刪除借款紀錄失敗，請檢查網路連線！');
       }
     }
 
@@ -2469,6 +2567,7 @@
         const categoryId = key === 'none' ? null : Number(key);
         const cat = categoryId ? categories.find(c => c.id === categoryId) : null;
         return {
+          key: key, // 'none' 或分類 id 字串，供點選比對與明細篩選使用
           label: cat ? cat.name : '未分類',
           value: sumsByCategory[key],
           color: getCategoryColor(categoryId)
@@ -2482,6 +2581,7 @@
       if (total === 0) {
         svgWrap.innerHTML = `<div style="width:220px; height:220px; display:flex; align-items:center; justify-content:center; color:#a0aec0; font-size:13px; text-align:center; border:1px dashed #e2e8f0; border-radius:50%;">${emptyText}</div>`;
         legend.innerHTML = '';
+        renderCategoryDetailList(targetMonth);
         return;
       }
 
@@ -2503,16 +2603,91 @@
 
       svgWrap.innerHTML = `<svg width="220" height="220" viewBox="0 0 220 220">${svgParts.join('')}</svg>`;
 
-      legend.innerHTML = slices.map(slice => {
+      legend.innerHTML = '';
+      slices.forEach(slice => {
         const pct = ((slice.value / total) * 100).toFixed(1);
-        return `
-          <div class="pie-legend-item">
-            <span class="pie-legend-swatch" style="background: ${slice.color};"></span>
-            <span class="pie-legend-label">${escapeHtml(slice.label)}</span>
-            <span class="pie-legend-value">$${slice.value}（${pct}%）</span>
+        const row = document.createElement('div');
+        row.className = 'pie-legend-item' + (selectedPieCategoryKey === slice.key ? ' selected' : '');
+        row.innerHTML = `
+          <span class="pie-legend-swatch" style="background: ${slice.color};"></span>
+          <span class="pie-legend-label">${escapeHtml(slice.label)}</span>
+          <span class="pie-legend-value">$${slice.value}（${pct}%）</span>
+        `;
+        row.addEventListener('click', () => {
+          // 再次點選同一個分類則取消選取，收合明細
+          selectedPieCategoryKey = (selectedPieCategoryKey === slice.key) ? null : slice.key;
+          renderPieChart();
+        });
+        legend.appendChild(row);
+      });
+
+      renderCategoryDetailList(targetMonth);
+    }
+
+    // 🌟 點選圖例分類後，顯示該分類當月的所有細項
+    function renderCategoryDetailList(targetMonth) {
+      const section = document.getElementById('category-detail-section');
+      const titleEl = document.getElementById('category-detail-title');
+      const listEl = document.getElementById('category-detail-list');
+
+      if (selectedPieCategoryKey === null) {
+        section.style.display = 'none';
+        listEl.innerHTML = '';
+        return;
+      }
+
+      section.style.display = 'block';
+
+      const isUncategorized = selectedPieCategoryKey === 'none';
+      const categoryIdNum = isUncategorized ? null : Number(selectedPieCategoryKey);
+      const cat = isUncategorized ? null : categories.find(c => c.id === categoryIdNum);
+      const label = cat ? cat.name : '未分類';
+
+      titleEl.innerText = `🏷️ ${label} 明細（${targetMonth}）`;
+
+      const matchedItems = expenses.filter(item => {
+        if (item.date.substring(0, 7) !== targetMonth) return false;
+        if (item.type !== pieViewMode) return false;
+        if (isUncategorized) return !item.categoryId;
+        return item.categoryId === categoryIdNum;
+      }).sort((a, b) => new Date(b.date) - new Date(a.date) || b.id - a.id);
+
+      listEl.innerHTML = '';
+
+      if (matchedItems.length === 0) {
+        listEl.innerHTML = `<li style="justify-content: center; color: #a0aec0;">這個分類本月沒有紀錄</li>`;
+        return;
+      }
+
+      matchedItems.forEach(item => {
+        const li = document.createElement('li');
+        const acc = assetAccounts.find(a => a.id === item.assetAccountId);
+        const accountTag = acc ? `<span class="item-account-tag">${acc.icon}${acc.name}</span>` : '';
+        const noteHtml = item.note ? `<div class="item-note">💡 ${escapeHtml(item.note)}</div>` : '';
+        const amountClass = item.type === 'income' ? 'income-text' : 'expense-text';
+        const amountSign = item.type === 'income' ? '+' : '-';
+
+        li.innerHTML = `
+          <div class="item-left">
+            <div class="item-title-row">
+              <span class="item-date">${item.date}</span>
+              <strong>${escapeHtml(item.name)}</strong>
+              ${accountTag}
+            </div>
+            ${noteHtml}
+          </div>
+          <div class="item-right">
+            <span class="${amountClass}">${amountSign}$${item.price}</span>
+            <button class="edit-item-btn" title="編輯本筆紀錄">✏️</button>
+            <button class="delete-item-btn" title="刪除本筆紀錄">✕</button>
           </div>
         `;
-      }).join('');
+
+        li.querySelector('.edit-item-btn').addEventListener('click', () => openEditExpenseModal(item.id));
+        li.querySelector('.delete-item-btn').addEventListener('click', () => deleteSingleExpense(item.id));
+
+        listEl.appendChild(li);
+      });
     }
 
     /* ---------------- 💡 獨立分頁：日期單日明細 ---------------- */
@@ -2672,7 +2847,7 @@
     }
 
     /* ---------------- 🏦 總資產管理 ---------------- */
-    function addAssetAccount() {
+    async function addAssetAccount() {
       const icon = document.getElementById('asset-icon-input').value;
       const name = document.getElementById('asset-name-input').value.trim();
       const amount = Number(document.getElementById('asset-amount-input').value);
@@ -2682,21 +2857,18 @@
         return;
       }
 
-      assetAccounts.push({
-        id: Date.now(),
-        icon,
-        name,
-        amount
-      });
-
-      renderAssets();
-      saveToCloud();
-
-      document.getElementById('asset-name-input').value = '';
-      document.getElementById('asset-amount-input').value = '';
+      const newId = Date.now();
+      try {
+        await setDoc(doc(assetsCol, String(newId)), { id: newId, icon, name, amount });
+        document.getElementById('asset-name-input').value = '';
+        document.getElementById('asset-amount-input').value = '';
+      } catch (e) {
+        console.error(e);
+        alert('新增帳戶失敗，請檢查網路連線！');
+      }
     }
 
-    function editAssetAccount(id) {
+    async function editAssetAccount(id) {
       const acc = assetAccounts.find(a => a.id === id);
       if (!acc) return;
 
@@ -2706,24 +2878,24 @@
       const newAmountStr = prompt('請輸入調整後的當前餘額：', acc.amount);
       if (newAmountStr === null) return;
 
-      acc.name = newName.trim() || acc.name;
-      acc.amount = Number(newAmountStr) || 0;
-
-      renderAssets();
-      renderExpenses();
-      renderLendRecords();
-      renderDailyView();
-      saveToCloud();
+      try {
+        await updateDoc(doc(assetsCol, String(id)), {
+          name: newName.trim() || acc.name,
+          amount: Number(newAmountStr) || 0
+        });
+      } catch (e) {
+        console.error(e);
+        alert('更新帳戶失敗，請檢查網路連線！');
+      }
     }
 
-    function deleteAssetAccount(id) {
-      if (confirm('確定要刪除這個資產帳戶嗎？')) {
-        assetAccounts = assetAccounts.filter(a => a.id !== id);
-        renderAssets();
-        renderExpenses();
-        renderLendRecords();
-        renderDailyView();
-        saveToCloud();
+    async function deleteAssetAccount(id) {
+      if (!confirm('確定要刪除這個資產帳戶嗎？')) return;
+      try {
+        await deleteDoc(doc(assetsCol, String(id)));
+      } catch (e) {
+        console.error(e);
+        alert('刪除帳戶失敗，請檢查網路連線！');
       }
     }
 
